@@ -1,0 +1,298 @@
+/**
+ * Barcode Scanner Styles
+ * Styling for scanner connection modal and UI elements
+ */
+
+/* Scanner Status Modal */
+#scannerStatusModal {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+    to {
+        opacity: 1;
+    }
+}
+
+#scannerStatusModal .relative {
+    animation: slideDown 0.3s ease-in-out;
+}
+
+@keyframes slideDown {
+    from {
+        transform: translateY(-50px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+/* Scanner Check Button */
+#scannerCheckBtn {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transition: all 0.3s ease;
+}
+
+#scannerCheckBtn:hover {
+    transform: scale(1.05);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+#scannerCheckBtn:active {
+    transform: scale(0.95);
+}
+
+/* Status Icon Animation */
+#scannerStatusIcon svg {
+    animation: scaleIn 0.5s ease-in-out;
+}
+
+@keyframes scaleIn {
+    0% {
+        transform: scale(0);
+        opacity: 0;
+    }
+    50% {
+        transform: scale(1.1);
+    }
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* Connection Details */
+#scannerDetails {
+    border: 1px solid #e5e7eb;
+    transition: all 0.3s ease;
+}
+
+#scannerDetails:hover {
+    border-color: #d1d5db;
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+}
+
+/* Button Styles */
+#connectBluetoothBtn,
+#connectUSBBtn,
+#checkConnectionBtn,
+#closeModalBtn {
+    transition: all 0.15s ease;
+    font-weight: 500;
+}
+
+#connectBluetoothBtn:hover,
+#connectUSBBtn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+}
+
+#connectBluetoothBtn:active,
+#connectUSBBtn:active {
+    transform: translateY(0);
+}
+
+/* Loading Spinner */
+.scanner-loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    border-top-color: #fff;
+    animation: spin 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* Scanner Status Indicator */
+.scanner-status-indicator {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    background: white;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 1000;
+    animation: slideInRight 0.3s ease-in-out;
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(100%);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+.scanner-status-indicator.connected {
+    border-left: 4px solid #10b981;
+}
+
+.scanner-status-indicator.disconnected {
+    border-left: 4px solid #ef4444;
+}
+
+.scanner-status-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.scanner-status-dot.connected {
+    background-color: #10b981;
+}
+
+.scanner-status-dot.disconnected {
+    background-color: #ef4444;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+/* Barcode Input Field Highlight */
+.barcode-input-active {
+    border: 2px solid #6366f1 !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1) !important;
+    animation: inputPulse 0.5s ease-in-out;
+}
+
+@keyframes inputPulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4);
+    }
+    70% {
+        box-shadow: 0 0 0 10px rgba(99, 102, 241, 0);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+    }
+}
+
+/* Scanner Icon Styles */
+.scanner-icon {
+    width: 24px;
+    height: 24px;
+}
+
+.scanner-icon.connected {
+    color: #10b981;
+}
+
+.scanner-icon.disconnected {
+    color: #6b7280;
+}
+
+/* Responsive Design */
+@media (max-width: 640px) {
+    #scannerStatusModal .relative {
+        width: 90%;
+        margin: 0 auto;
+    }
+
+    #scannerCheckBtn {
+        bottom: 20px;
+        right: 20px;
+        padding: 12px;
+    }
+
+    .scanner-status-indicator {
+        top: 10px;
+        right: 10px;
+        padding: 8px 15px;
+        font-size: 14px;
+    }
+}
+
+/* Accessibility */
+@media (prefers-reduced-motion: reduce) {
+    #scannerStatusModal,
+    #scannerStatusModal .relative,
+    #scannerCheckBtn,
+    #scannerStatusIcon svg,
+    .scanner-status-indicator,
+    .scanner-status-dot {
+        animation: none;
+    }
+}
+
+/* Dark Mode Support */
+@media (prefers-color-scheme: dark) {
+    #scannerStatusModal .bg-white {
+        background-color: #1f2937;
+        color: #f9fafb;
+    }
+
+    #scannerDetails {
+        background-color: #374151;
+        border-color: #4b5563;
+    }
+
+    .scanner-status-indicator {
+        background-color: #1f2937;
+        color: #f9fafb;
+    }
+}
+
+/* Toast Notification for Scanner Events */
+.scanner-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: white;
+    padding: 15px 25px;
+    border-radius: 8px;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    z-index: 1000;
+    animation: toastSlideUp 0.3s ease-in-out;
+}
+
+@keyframes toastSlideUp {
+    from {
+        transform: translateX(-50%) translateY(100px);
+        opacity: 0;
+    }
+    to {
+        transform: translateX(-50%) translateY(0);
+        opacity: 1;
+    }
+}
+
+.scanner-toast.success {
+    border-left: 4px solid #10b981;
+}
+
+.scanner-toast.error {
+    border-left: 4px solid #ef4444;
+}
+
+.scanner-toast.info {
+    border-left: 4px solid #3b82f6;
+}

@@ -1,0 +1,104 @@
+/* Custom Admin Styles for HCC Asset Management System */
+
+/* Table Enhancements */
+.table-row {
+    transition: background-color 0.2s ease;
+}
+
+.table-row:hover {
+    background-color: #f9fafb;
+}
+
+/* Modal Improvements */
+.modal-content {
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+    border-radius: 12px;
+}
+
+/* Form Inputs */
+.form-input:focus {
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Buttons */
+.btn-primary {
+    background-color: #2563eb;
+    transition: background-color 0.2s ease;
+}
+
+.btn-primary:hover {
+    background-color: #1d4ed8;
+}
+
+.btn-secondary {
+    background-color: #6b7280;
+    transition: background-color 0.2s ease;
+}
+
+.btn-secondary:hover {
+    background-color: #4b5563;
+}
+
+/* Badge Enhancements */
+.badge-admin {
+    background-color: #fef3c7;
+    color: #92400e;
+}
+
+.badge-staff {
+    background-color: #dbeafe;
+    color: #1e40af;
+}
+
+.badge-custodian {
+    background-color: #dcfce7;
+    color: #166534;
+}
+
+.badge-user {
+    background-color: #f3f4f6;
+    color: #374151;
+}
+
+/* Responsive Adjustments */
+@media (max-width: 768px) {
+    .modal-content {
+        width: 90%;
+        margin: 10% auto;
+    }
+
+    .filters-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .table-responsive {
+        overflow-x: auto;
+    }
+}
+
+/* Loading and Status Indicators */
+.loading-spinner {
+    border: 2px solid #f3f4f6;
+    border-top: 2px solid #3b82f6;
+    border-radius: 50%;
+    width: 20px;
+    height: 20px;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Sidebar Mobile Overlay */
+.sidebar-overlay {
+    background-color: rgba(0, 0, 0, 0.5);
+    z-index: 40;
+}
+
+/* Header Enhancements */
+.header-shadow {
+    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
