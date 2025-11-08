@@ -1,0 +1,48 @@
+=== Asset Notification Scheduler Started ===
+Execution time: 2025-11-08 13:55:00
+
+--- Checking for items due in 2 days ---
+Found 2 item(s) due in 2 days
+Processing request #146 for Micy...
+  ✓ Notification sent successfully
+Processing request #148 for Micy...
+  ✓ Notification sent successfully
+
+--- Checking for overdue items ---
+Found 2 overdue item(s)
+Processing overdue request #147 for Micy (3 days overdue)...
+  ✓ Overdue alert sent successfully
+Processing overdue request #149 for Micy (3 days overdue)...
+  ✓ Overdue alert sent successfully
+
+=== Execution Summary ===
+2-Day Reminders Sent: 2
+Overdue Alerts Sent: 2
+Errors: 0
+Completion time: 2025-11-08 13:55:24
+=== Asset Notification Scheduler Started ===
+Execution time: 2025-11-08 14:02:15
+
+--- Checking for items due in 2 days ---
+Found 3 item(s) due in 2 days
+Processing request #146 for Micy...
+  ✓ Notification sent successfully
+Processing request #148 for Micy...
+  ✓ Notification sent successfully
+Processing request #150 for Micy...
+  ✓ Notification sent successfully
+
+--- Checking for overdue items ---
+Found 3 overdue item(s)
+Processing overdue request #147 for Micy (3 days overdue)...
+  ✓ Overdue alert sent successfully
+Processing overdue request #149 for Micy (3 days overdue)...
+  ✓ Overdue alert sent successfully
+Processing overdue request #151 for Micy (3 days overdue)...
+  ✓ Overdue alert sent successfully
+
+=== Execution Summary ===
+2-Day Reminders Sent: 3
+Overdue Alerts Sent: 3
+Errors: 0
+Completion time: 2025-11-08 14:02:45

@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scheduler API Tester - HCC Asset Management</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8 max-w-4xl">
+        <div class="bg-white rounded-lg shadow-lg p-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">📡 Scheduler API Tester</h1>
+            <p class="text-gray-600 mb-6">Test the auto-scheduler API endpoint</p>
+
+            <!-- API Configuration -->
+            <div class="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <h2 class="font-semibold text-blue-900 mb-3">🔧 API Configuration</h2>
+                <div class="space-y-2">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">API URL:</label>
+                        <input type="text" id="apiUrl"
+                               value="/AMS-REQ/api/scheduler_trigger.php"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">API Key:</label>
+                        <input type="text" id="apiKey"
+                               value="hcc_scheduler_api_2024_secure"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Test Buttons -->
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <button onclick="testAPI()"
+                        class="bg-green-600 hover:bg-green-700 text-white font-semibold py-3 px-6 rounded-lg transition duration-200">
+                    ✅ Test API
+                </button>
+                <button onclick="testWrongKey()"
+                        class="bg-red-600 hover:bg-red-700 text-white font-semibold py-3 px-6 rounded-lg transition duration-200">
+                    ❌ Test Wrong Key
+                </button>
+                <button onclick="testNoKey()"
+                        class="bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-3 px-6 rounded-lg transition duration-200">
+                    ⚠️ Test No Key
+                </button>
+            </div>
+
+            <!-- Loading Indicator -->
+            <div id="loading" class="hidden mb-4 p-4 bg-blue-100 border border-blue-300 rounded-lg">
+                <div class="flex items-center">
+                    <svg class="animate-spin h-5 w-5 mr-3 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    <span class="text-blue-700 font-medium">Executing scheduler...</span>
+                </div>
+            </div>
+
+            <!-- Response Display -->
+            <div id="response" class="hidden mb-4"></div>
+
+            <!-- API Documentation -->
+            <div class="mt-8 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <h3 class="font-semibold text-gray-800 mb-3">📖 Quick Reference</h3>
+                <div class="space-y-2 text-sm">
+                    <div>
+                        <span class="font-medium">Full URL:</span>
+                        <code class="bg-gray-200 px-2 py-1 rounded text-xs ml-2" id="fullUrl"></code>
+                    </div>
+                    <div>
+                        <span class="font-medium">Method:</span>
+                        <span class="ml-2">GET or POST</span>
+                    </div>
+                    <div>
+                        <span class="font-medium">Documentation:</span>
+                        <a href="SCHEDULER_API_GUIDE.md" target="_blank" class="ml-2 text-blue-600 hover:underline">View Full Guide</a>
+                    </div>
+                </div>
+            </div>
+
+            <!-- cURL Example -->
+            <div class="mt-4 p-4 bg-gray-800 rounded-lg text-gray-100">
+                <h3 class="font-semibold mb-2">💻 cURL Command:</h3>
+                <code class="text-xs block" id="curlCommand"></code>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Update display elements
+        function updateDisplays() {
+            const url = document.getElementById('apiUrl').value;
+            const key = document.getElementById('apiKey').value;
+            const fullUrl = window.location.origin + url + '?api_key=' + key;
+
+            document.getElementById('fullUrl').textContent = fullUrl;
+            document.getElementById('curlCommand').textContent = `curl "${fullUrl}"`;
+        }
+
+        // Initialize displays
+        updateDisplays();
+        document.getElementById('apiUrl').addEventListener('input', updateDisplays);
+        document.getElementById('apiKey').addEventListener('input', updateDisplays);
+
+        async function testAPI() {
+            const url = document.getElementById('apiUrl').value;
+            const key = document.getElementById('apiKey').value;
+            await callAPI(url, key);
+        }
+
+        async function testWrongKey() {
+            const url = document.getElementById('apiUrl').value;
+            await callAPI(url, 'wrong_key_12345');
+        }
+
+        async function testNoKey() {
+            const url = document.getElementById('apiUrl').value;
+            await callAPI(url, '');
+        }
+
+        async function callAPI(url, apiKey) {
+            const responseDiv = document.getElementById('response');
+            const loadingDiv = document.getElementById('loading');
+
+            // Show loading
+            loadingDiv.classList.remove('hidden');
+            responseDiv.classList.add('hidden');
+
+            try {
+                const fullUrl = apiKey ? `${url}?api_key=${apiKey}` : url;
+                const startTime = Date.now();
+
+                const response = await fetch(fullUrl);
+                const data = await response.json();
+                const executionTime = Date.now() - startTime;
+
+                // Hide loading
+                loadingDiv.classList.add('hidden');
+                responseDiv.classList.remove('hidden');
+
+                // Display response
+                if (response.ok && data.success) {
+                    responseDiv.innerHTML = `
+                        <div class="p-4 bg-green-50 border border-green-300 rounded-lg">
+                            <h3 class="font-semibold text-green-900 mb-3 flex items-center">
+                                <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                                </svg>
+                                Success! Scheduler Executed
+                            </h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div class="bg-white p-3 rounded border border-green-200">
+                                        <div class="text-gray-600 text-xs">2-Day Reminders</div>
+                                        <div class="text-2xl font-bold text-green-700">${data.statistics.two_day_reminders}</div>
+                                    </div>
+                                    <div class="bg-white p-3 rounded border border-green-200">
+                                        <div class="text-gray-600 text-xs">Overdue Alerts</div>
+                                        <div class="text-2xl font-bold text-green-700">${data.statistics.overdue_alerts}</div>
+                                    </div>
+                                </div>
+                                <div class="mt-3 text-gray-700">
+                                    <p><strong>Execution Time:</strong> ${executionTime}ms</p>
+                                    <p><strong>Server Time:</strong> ${data.execution_time}</p>
+                                    <p><strong>Client IP:</strong> ${data.client_ip}</p>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    const statusClass = response.status === 401 ? 'yellow' : 'red';
+                    responseDiv.innerHTML = `
+                        <div class="p-4 bg-${statusClass}-50 border border-${statusClass}-300 rounded-lg">
+                            <h3 class="font-semibold text-${statusClass}-900 mb-2 flex items-center">
+                                <svg class="w-6 h-6 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clip-rule="evenodd"/>
+                                </svg>
+                                Error: ${data.error}
+                            </h3>
+                            <div class="text-sm text-${statusClass}-800">
+                                <p><strong>Status Code:</strong> ${response.status}</p>
+                                <p><strong>Timestamp:</strong> ${data.timestamp}</p>
+                            </div>
+                        </div>
+                    `;
+                }
+
+                // Show raw JSON
+                responseDiv.innerHTML += `
+                    <details class="mt-4">
+                        <summary class="cursor-pointer font-semibold text-gray-700 hover:text-gray-900">
+                            📄 View Raw JSON Response
+                        </summary>
+                        <pre class="mt-2 p-4 bg-gray-800 text-gray-100 rounded text-xs overflow-x-auto">${JSON.stringify(data, null, 2)}</pre>
+                    </details>
+                `;
+
+            } catch (error) {
+                loadingDiv.classList.add('hidden');
+                responseDiv.classList.remove('hidden');
+                responseDiv.innerHTML = `
+                    <div class="p-4 bg-red-50 border border-red-300 rounded-lg">
+                        <h3 class="font-semibold text-red-900 mb-2">❌ Request Failed</h3>
+                        <p class="text-sm text-red-800">${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+    </script>
+</body>
+</html>
