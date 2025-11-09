@@ -17,9 +17,20 @@ requireLogin();
 
 header('Content-Type: application/json');
 
+// Parse JSON input if Content-Type is application/json
+$inputData = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_SERVER['CONTENT_TYPE']) &&
+    strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false) {
+    $rawInput = file_get_contents('php://input');
+    $inputData = json_decode($rawInput, true) ?? [];
+    // Merge with $_POST for compatibility
+    $_POST = array_merge($_POST, $inputData);
+}
+
 // Validate CSRF token for POST requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $csrfToken = $_POST['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+    $csrfToken = $_POST['csrf_token'] ?? $inputData['csrf_token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
     if (!validateCSRFToken($csrfToken)) {
         http_response_code(403);
         echo json_encode(['success' => false, 'message' => 'Invalid CSRF token']);
@@ -39,16 +50,21 @@ try {
             $campusId = $user['campus_id'];
             $status = '';
 
-            // Determine which requests to show based on role
-            if ($userRole === 'custodian') {
-                // Show requests that are pending initial custodian approval
-                $status = 'pending';
-            } elseif ($userRole === 'department' || hasRole('department')) {
-                // Show requests approved by custodian, pending department approval
-                $status = 'approved_custodian';
-            } elseif ($userRole === 'admin' || $userRole === 'super_admin') {
-                // Show requests pending admin approval
-                $status = $_GET['status'] ?? 'approved_department,approved_custodian';
+            // Allow custom status override via query parameter
+            if (isset($_GET['status'])) {
+                $status = $_GET['status'];
+            } else {
+                // Determine which requests to show based on role
+                if ($userRole === 'custodian') {
+                    // Show requests that are pending initial custodian approval
+                    $status = 'pending';
+                } elseif ($userRole === 'department' || hasRole('department')) {
+                    // Show requests approved by custodian, pending department approval
+                    $status = 'approved_custodian';
+                } elseif ($userRole === 'admin' || $userRole === 'super_admin') {
+                    // Show requests pending admin approval
+                    $status = 'approved_department,approved_custodian';
+                }
             }
 
             $statusList = explode(',', $status);
@@ -69,13 +85,13 @@ try {
                 FROM asset_requests ar
                 JOIN assets a ON ar.asset_id = a.id
                 JOIN categories c ON a.category_id = c.id
-                JOIN users u ON ar.user_id = u.id
+                JOIN users u ON ar.requester_id = u.id
                 JOIN campuses cam ON ar.campus_id = cam.id
-                LEFT JOIN users custodian ON ar.custodian_approved_by = custodian.id
+                LEFT JOIN users custodian ON ar.custodian_reviewed_by = custodian.id
                 LEFT JOIN users dept ON ar.department_approved_by = dept.id
-                LEFT JOIN users admin ON ar.admin_approved_by = admin.id
+                LEFT JOIN users admin ON ar.final_approved_by = admin.id
                 WHERE ar.campus_id = ? AND ar.status IN ($placeholders)
-                ORDER BY ar.created_at DESC
+                ORDER BY ar.request_date DESC
             ");
 
             $params = array_merge([$campusId], $statusList);
@@ -106,7 +122,6 @@ try {
                     c.category_name,
                     u.full_name as requester_name,
                     u.email as requester_email,
-                    u.phone as requester_phone,
                     cam.campus_name,
                     custodian.full_name as custodian_name,
                     custodian.email as custodian_email,
@@ -117,11 +132,11 @@ try {
                 FROM asset_requests ar
                 JOIN assets a ON ar.asset_id = a.id
                 JOIN categories c ON a.category_id = c.id
-                JOIN users u ON ar.user_id = u.id
+                JOIN users u ON ar.requester_id = u.id
                 JOIN campuses cam ON ar.campus_id = cam.id
-                LEFT JOIN users custodian ON ar.custodian_approved_by = custodian.id
+                LEFT JOIN users custodian ON ar.custodian_reviewed_by = custodian.id
                 LEFT JOIN users dept ON ar.department_approved_by = dept.id
-                LEFT JOIN users admin ON ar.admin_approved_by = admin.id
+                LEFT JOIN users admin ON ar.final_approved_by = admin.id
                 WHERE ar.id = ?
             ");
             $stmt->execute([$requestId]);
@@ -150,8 +165,17 @@ try {
                 throw new Exception('Request ID is required');
             }
 
-            // Get request details
-            $stmt = $pdo->prepare("SELECT * FROM asset_requests WHERE id = ? AND campus_id = ?");
+            // Get request details with requester info
+            $stmt = $pdo->prepare("
+                SELECT ar.*,
+                       a.asset_name,
+                       u.full_name as requester_name,
+                       u.email as requester_email
+                FROM asset_requests ar
+                JOIN assets a ON ar.asset_id = a.id
+                JOIN users u ON ar.requester_id = u.id
+                WHERE ar.id = ? AND ar.campus_id = ?
+            ");
             $stmt->execute([$requestId, $user['campus_id']]);
             $request = $stmt->fetch();
 
@@ -167,9 +191,9 @@ try {
             $stmt = $pdo->prepare("
                 UPDATE asset_requests
                 SET status = 'approved_custodian',
-                    custodian_approved_by = ?,
-                    custodian_approved_at = NOW(),
-                    custodian_comments = ?
+                    custodian_reviewed_by = ?,
+                    custodian_reviewed_at = NOW(),
+                    custodian_review_notes = ?
                 WHERE id = ?
             ");
             $stmt->execute([$userId, $comments, $requestId]);
@@ -177,21 +201,39 @@ try {
             // Log activity
             logActivity($pdo, $request['asset_id'], 'REQUEST_APPROVED_CUSTODIAN', "Request #{$requestId} approved by custodian");
 
+            // Send email notification to requester
+            sendRequestNotificationEmail(
+                $pdo,
+                $request['requester_email'],
+                $request['requester_name'],
+                $requestId,
+                $request['asset_name'],
+                'approved',
+                "Your request for {$request['asset_name']} has been approved by the custodian and is pending final approval."
+            );
+
             // Determine next approver
             $requireDeptApproval = getSystemSetting($pdo, 'require_department_approval', false);
             $requireAdminApproval = getSystemSetting($pdo, 'require_admin_approval', true);
 
-            // Send notification to next approver
+            // Send notification to next approver (in-app only)
             if ($requireDeptApproval) {
                 // Find department head for this campus
-                $deptHeadStmt = $pdo->prepare("SELECT approver_user_id FROM department_approvers WHERE campus_id = ? AND is_active = TRUE LIMIT 1");
+                $deptHeadStmt = $pdo->prepare("
+                    SELECT u.id, u.full_name, u.email
+                    FROM department_approvers da
+                    JOIN users u ON da.approver_user_id = u.id
+                    WHERE da.campus_id = ? AND da.is_active = TRUE
+                    LIMIT 1
+                ");
                 $deptHeadStmt->execute([$user['campus_id']]);
                 $deptHead = $deptHeadStmt->fetch();
 
                 if ($deptHead) {
+                    // Send in-app notification to next approver
                     createNotification(
                         $pdo,
-                        $deptHead['approver_user_id'],
+                        $deptHead['id'],
                         NOTIFICATION_APPROVAL_REQUEST,
                         "Asset Request Needs Department Approval",
                         "Request #{$requestId} for {$request['quantity']}x asset has been approved by custodian and requires your approval.",
@@ -205,11 +247,12 @@ try {
                 }
             } elseif ($requireAdminApproval) {
                 // Send to admin directly
-                $adminStmt = $pdo->prepare("SELECT id FROM users WHERE role IN ('admin', 'super_admin') AND campus_id = ? AND is_active = TRUE LIMIT 1");
+                $adminStmt = $pdo->prepare("SELECT id, full_name, email FROM users WHERE role IN ('admin', 'super_admin') AND campus_id = ? AND is_active = TRUE LIMIT 1");
                 $adminStmt->execute([$user['campus_id']]);
                 $admin = $adminStmt->fetch();
 
                 if ($admin) {
+                    // Send in-app notification to admin
                     createNotification(
                         $pdo,
                         $admin['id'],
@@ -315,8 +358,17 @@ try {
                 throw new Exception('Request ID is required');
             }
 
-            // Get request details
-            $stmt = $pdo->prepare("SELECT * FROM asset_requests WHERE id = ?");
+            // Get request details with requester and asset info
+            $stmt = $pdo->prepare("
+                SELECT ar.*,
+                       a.asset_name,
+                       u.full_name as requester_name,
+                       u.email as requester_email
+                FROM asset_requests ar
+                JOIN assets a ON ar.asset_id = a.id
+                JOIN users u ON ar.requester_id = u.id
+                WHERE ar.id = ?
+            ");
             $stmt->execute([$requestId]);
             $request = $stmt->fetch();
 
@@ -325,7 +377,7 @@ try {
             }
 
             // Check if custodian approved
-            if ($request['custodian_approved_by'] === null) {
+            if ($request['custodian_reviewed_by'] === null) {
                 throw new Exception('Request must be approved by custodian first');
             }
 
@@ -333,9 +385,9 @@ try {
             $stmt = $pdo->prepare("
                 UPDATE asset_requests
                 SET status = 'approved_admin',
-                    admin_approved_by = ?,
-                    admin_approved_at = NOW(),
-                    admin_comments = ?
+                    final_approved_by = ?,
+                    final_approved_at = NOW(),
+                    admin_notes = ?
                 WHERE id = ?
             ");
             $stmt->execute([$userId, $comments, $requestId]);
@@ -346,7 +398,7 @@ try {
             // Notify requester
             createNotification(
                 $pdo,
-                $request['user_id'],
+                $request['requester_id'],
                 NOTIFICATION_APPROVAL_RESPONSE,
                 "Asset Request Approved!",
                 "Your request #{$requestId} has been approved. Please coordinate with the custodian for asset pickup.",
@@ -358,10 +410,21 @@ try {
                 ]
             );
 
+            // Send email notification to requester
+            sendRequestNotificationEmail(
+                $pdo,
+                $request['requester_email'],
+                $request['requester_name'],
+                $requestId,
+                $request['asset_name'],
+                'approved',
+                "Your request for {$request['asset_name']} has been fully approved! Please coordinate with the custodian for asset pickup."
+            );
+
             // Notify custodian to release asset
             createNotification(
                 $pdo,
-                $request['custodian_approved_by'],
+                $request['custodian_reviewed_by'],
                 NOTIFICATION_SYSTEM_ALERT,
                 "Asset Ready for Release",
                 "Request #{$requestId} has been fully approved. Please release the asset to the requester.",
@@ -392,8 +455,17 @@ try {
                 throw new Exception('Rejection reason is required');
             }
 
-            // Get request details
-            $stmt = $pdo->prepare("SELECT * FROM asset_requests WHERE id = ?");
+            // Get request details with requester and asset info
+            $stmt = $pdo->prepare("
+                SELECT ar.*,
+                       a.asset_name,
+                       u.full_name as requester_name,
+                       u.email as requester_email
+                FROM asset_requests ar
+                JOIN assets a ON ar.asset_id = a.id
+                JOIN users u ON ar.requester_id = u.id
+                WHERE ar.id = ?
+            ");
             $stmt->execute([$requestId]);
             $request = $stmt->fetch();
 
@@ -424,12 +496,10 @@ try {
             $stmt = $pdo->prepare("
                 UPDATE asset_requests
                 SET status = 'rejected',
-                    rejection_reason = ?,
-                    rejected_by = ?,
-                    rejected_at = NOW()
+                    rejection_reason = ?
                 WHERE id = ?
             ");
-            $stmt->execute([$reason, $userId, $requestId]);
+            $stmt->execute([$reason, $requestId]);
 
             // Log activity
             logActivity($pdo, $request['asset_id'], 'REQUEST_REJECTED', "Request #{$requestId} rejected: {$reason}");
@@ -437,7 +507,7 @@ try {
             // Notify requester
             createNotification(
                 $pdo,
-                $request['user_id'],
+                $request['requester_id'],
                 NOTIFICATION_APPROVAL_RESPONSE,
                 "Asset Request Rejected",
                 "Your request #{$requestId} has been rejected. Reason: {$reason}",
@@ -447,6 +517,17 @@ try {
                     'priority' => 'high',
                     'action_url' => '/AMS-REQ/staff/my_requests.php?id=' . $requestId
                 ]
+            );
+
+            // Send email notification to requester
+            sendRequestNotificationEmail(
+                $pdo,
+                $request['requester_email'],
+                $request['requester_name'],
+                $requestId,
+                $request['asset_name'],
+                'rejected',
+                "Your request for {$request['asset_name']} has been rejected. Reason: {$reason}"
             );
 
             echo json_encode([
@@ -467,8 +548,17 @@ try {
                 throw new Exception('Request ID is required');
             }
 
-            // Get request details
-            $stmt = $pdo->prepare("SELECT * FROM asset_requests WHERE id = ?");
+            // Get request details with requester info
+            $stmt = $pdo->prepare("
+                SELECT ar.*,
+                       a.asset_name,
+                       u.full_name as requester_name,
+                       u.email as requester_email
+                FROM asset_requests ar
+                JOIN assets a ON ar.asset_id = a.id
+                JOIN users u ON ar.requester_id = u.id
+                WHERE ar.id = ?
+            ");
             $stmt->execute([$requestId]);
             $request = $stmt->fetch();
 
@@ -484,19 +574,18 @@ try {
             $pdo->beginTransaction();
 
             try {
-                // Create borrowing record
+                // Create borrowing record using the actual table structure
                 $borrowingStmt = $pdo->prepare("
                     INSERT INTO asset_borrowings
-                    (user_id, asset_id, campus_id, quantity, borrow_date, expected_return_date, purpose, status)
-                    VALUES (?, ?, ?, ?, NOW(), ?, ?, 'active')
+                    (asset_id, borrower_name, borrower_type, expected_return_date, notes, status, recorded_by)
+                    VALUES (?, ?, 'Teacher', ?, ?, 'active', ?)
                 ");
                 $borrowingStmt->execute([
-                    $request['user_id'],
                     $request['asset_id'],
-                    $request['campus_id'],
-                    $request['quantity'],
+                    $request['requester_name'],
                     $request['expected_return_date'],
-                    $request['purpose']
+                    $request['purpose'],
+                    $user['full_name']
                 ]);
                 $borrowingId = $pdo->lastInsertId();
 
@@ -504,11 +593,11 @@ try {
                 $updateReqStmt = $pdo->prepare("
                     UPDATE asset_requests
                     SET status = 'released',
-                        released_at = NOW(),
-                        borrowing_id = ?
+                        released_date = NOW(),
+                        released_by = ?
                     WHERE id = ?
                 ");
-                $updateReqStmt->execute([$borrowingId, $requestId]);
+                $updateReqStmt->execute([$userId, $requestId]);
 
                 // Update asset quantity (if tracked)
                 $updateAssetStmt = $pdo->prepare("
@@ -530,7 +619,7 @@ try {
                 // Notify requester
                 createNotification(
                     $pdo,
-                    $request['user_id'],
+                    $request['requester_id'],
                     NOTIFICATION_SYSTEM_ALERT,
                     "Asset Released",
                     "Your requested asset has been released. Please return by {$request['expected_return_date']}.",
@@ -542,10 +631,160 @@ try {
                     ]
                 );
 
+                // Send email notification to requester
+                sendRequestNotificationEmail(
+                    $pdo,
+                    $request['requester_email'],
+                    $request['requester_name'],
+                    $requestId,
+                    $request['asset_name'],
+                    'released',
+                    "Your requested asset '{$request['asset_name']}' has been released. Please return it by " . date('F j, Y', strtotime($request['expected_return_date'])) . "."
+                );
+
                 echo json_encode([
                     'success' => true,
                     'message' => 'Asset released successfully. Borrowing record created.',
                     'borrowing_id' => $borrowingId
+                ]);
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                throw $e;
+            }
+            break;
+
+        // Return asset (process asset return)
+        case 'return_asset':
+            if (!hasRole('custodian') && !hasRole('admin')) {
+                throw new Exception('Only custodians can process returns');
+            }
+
+            $requestId = (int)($_POST['request_id'] ?? 0);
+            $condition = $_POST['condition'] ?? 'good';
+            $notes = $_POST['notes'] ?? '';
+            $lateReturnRemarks = $_POST['late_return_remarks'] ?? null;
+            $isOverdue = $_POST['is_overdue'] ?? false;
+            $daysOverdue = (int)($_POST['days_overdue'] ?? 0);
+
+            if (!$requestId) {
+                throw new Exception('Request ID is required');
+            }
+
+            // Get request details with requester and asset info
+            $stmt = $pdo->prepare("
+                SELECT ar.*,
+                       a.asset_name,
+                       u.full_name as requester_name,
+                       u.email as requester_email
+                FROM asset_requests ar
+                JOIN assets a ON ar.asset_id = a.id
+                JOIN users u ON ar.requester_id = u.id
+                WHERE ar.id = ?
+            ");
+            $stmt->execute([$requestId]);
+            $request = $stmt->fetch();
+
+            if (!$request) {
+                throw new Exception('Request not found');
+            }
+
+            if ($request['status'] !== 'released') {
+                throw new Exception('Asset is not currently released');
+            }
+
+            // Begin transaction
+            $pdo->beginTransaction();
+
+            try {
+                // Update request status
+                $updateStmt = $pdo->prepare("
+                    UPDATE asset_requests
+                    SET status = 'returned',
+                        returned_date = NOW(),
+                        returned_by = ?,
+                        return_condition = ?,
+                        return_notes = ?,
+                        late_return_remarks = ?,
+                        days_overdue = ?,
+                        late_return_recorded_by = ?,
+                        late_return_recorded_at = ?
+                    WHERE id = ?
+                ");
+
+                $updateStmt->execute([
+                    $userId,
+                    $condition,
+                    $notes,
+                    $isOverdue ? $lateReturnRemarks : null,
+                    $isOverdue ? $daysOverdue : 0,
+                    $isOverdue ? $userId : null,
+                    $isOverdue ? date('Y-m-d H:i:s') : null,
+                    $requestId
+                ]);
+
+                // Note: Borrowing record updates handled separately if needed
+
+                // Increase asset quantity back
+                $assetStmt = $pdo->prepare("
+                    UPDATE assets
+                    SET quantity = quantity + ?
+                    WHERE id = ?
+                ");
+                $assetStmt->execute([$request['quantity'], $request['asset_id']]);
+
+                // Log activity
+                $activityMessage = $isOverdue
+                    ? "Asset returned {$daysOverdue} day(s) late via request #{$requestId}. Remarks: {$lateReturnRemarks}"
+                    : "Asset returned on time via request #{$requestId}";
+                logActivity($pdo, $request['asset_id'], 'ASSET_RETURNED', $activityMessage);
+
+                $pdo->commit();
+
+                // Notify requester
+                createNotification(
+                    $pdo,
+                    $request['requester_id'],
+                    NOTIFICATION_SYSTEM_ALERT,
+                    "Asset Return Confirmed",
+                    "Your asset return has been processed. Condition: {$condition}." . ($isOverdue ? " Note: This was a late return." : ""),
+                    [
+                        'related_type' => 'request',
+                        'related_id' => $requestId,
+                        'priority' => $isOverdue ? 'high' : 'medium'
+                    ]
+                );
+
+                // Send email notification to requester (especially important for late returns)
+                if ($isOverdue) {
+                    $emailMessage = "Your borrowed asset '{$request['asset_name']}' has been returned {$daysOverdue} day(s) late. " .
+                                    "Condition: {$condition}. Late return remarks: {$lateReturnRemarks}";
+                    sendRequestNotificationEmail(
+                        $pdo,
+                        $request['requester_email'],
+                        $request['requester_name'],
+                        $requestId,
+                        $request['asset_name'],
+                        'late_return',
+                        $emailMessage
+                    );
+                } else {
+                    $emailMessage = "Your borrowed asset '{$request['asset_name']}' has been returned on time. Condition: {$condition}. Thank you!";
+                    sendRequestNotificationEmail(
+                        $pdo,
+                        $request['requester_email'],
+                        $request['requester_name'],
+                        $requestId,
+                        $request['asset_name'],
+                        'returned',
+                        $emailMessage
+                    );
+                }
+
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Asset returned successfully',
+                    'is_late' => $isOverdue,
+                    'days_overdue' => $daysOverdue
                 ]);
             } catch (Exception $e) {
                 $pdo->rollBack();

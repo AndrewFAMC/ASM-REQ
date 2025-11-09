@@ -23,6 +23,32 @@ if ($role !== 'custodian' && $role !== 'admin') {
 }
 
 $campusId = $user['campus_id'];
+
+// Get statistics for release/return badges
+$campusId = $user['campus_id'];
+$pendingReleaseCount = 0;
+$pendingReturnCount = 0;
+$overdueCount = 0;
+
+try {
+    // Count pending releases (approved but not yet released)
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'approved' AND campus_id = ?");
+    $stmt->execute([$campusId]);
+    $pendingReleaseCount = (int)$stmt->fetchColumn();
+
+    // Count pending returns (released but not yet returned)
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ?");
+    $stmt->execute([$campusId]);
+    $pendingReturnCount = (int)$stmt->fetchColumn();
+
+    // Count overdue returns
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ? AND expected_return_date < CURDATE()");
+    $stmt->execute([$campusId]);
+    $overdueCount = (int)$stmt->fetchColumn();
+} catch (PDOException $e) {
+    error_log("Error fetching custodian statistics: " . $e->getMessage());
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -60,17 +86,45 @@ $campusId = $user['campus_id'];
 <body class="bg-gray-100">
     <div class="flex h-screen">
         <!-- Sidebar -->
-        <div class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
+      <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
             <div class="flex items-center justify-center h-20 border-b border-gray-700">
                 <img src="../logo/1.png" alt="Logo" class="h-10 w-10 mr-3">
                 <span class="text-white text-lg font-bold">Custodian Panel</span>
             </div>
-            <nav class="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
-                <a href="../custodian_dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-home w-6"></i><span>Dashboard</span>
+            <nav class="flex-1 px-4 py-4 space-y-2 sidebar-scroll overflow-y-auto">
+                <!-- Simplified Navigation -->
+                <a href="#" onclick="showTab('manage-assets')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-box-open w-6"></i><span>Manage Assets</span>
                 </a>
-                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md bg-gray-700">
-                    <i class="fas fa-check-circle w-6"></i><span>Approve Requests</span>
+                <a href="#" onclick="showTab('offices')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-building w-6"></i><span>Offices</span>
+                </a>
+
+                <!-- Divider -->
+                <div class="border-t border-gray-700 my-2"></div>
+
+                <!-- Approve Requests -->
+                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-check-circle w-6"></i>
+                    <span>Approve Requests</span>
+                </a>
+
+                <!-- Release Assets -->
+                <a href="release_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-hand-holding w-6"></i>
+                    <span>Release Assets</span>
+                    <?php if ($pendingReleaseCount > 0): ?>
+                        <span class="ml-auto bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReleaseCount ?></span>
+                    <?php endif; ?>
+                </a>
+
+                <!-- Return Assets -->
+                <a href="return_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-undo w-6"></i>
+                    <span>Return Assets</span>
+                    <?php if ($pendingReturnCount > 0): ?>
+                        <span class="ml-auto <?= $overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500' ?> text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReturnCount ?></span>
+                    <?php endif; ?>
                 </a>
             </nav>
         </div>
@@ -289,15 +343,15 @@ $campusId = $user['campus_id'];
             const today = new Date().toISOString().split('T')[0];
             const approvedToday = this.requests.filter(r =>
                 r.status === 'approved_custodian' &&
-                r.custodian_approved_at &&
-                r.custodian_approved_at.startsWith(today)
+                r.custodian_reviewed_at &&
+                r.custodian_reviewed_at.startsWith(today)
             ).length;
             document.getElementById('approvedTodayCount').textContent = approvedToday;
 
             // Total this month
             const thisMonth = new Date().toISOString().slice(0, 7);
             const totalMonth = this.requests.filter(r =>
-                r.created_at.startsWith(thisMonth)
+                r.request_date && r.request_date.startsWith(thisMonth)
             ).length;
             document.getElementById('totalCount').textContent = totalMonth;
         }
@@ -314,16 +368,18 @@ $campusId = $user['campus_id'];
                 }
 
                 // Date filter
-                const requestDate = new Date(request.created_at);
-                const now = new Date();
-                if (dateFilter === 'today') {
-                    if (requestDate.toDateString() !== now.toDateString()) return false;
-                } else if (dateFilter === 'week') {
-                    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                    if (requestDate < weekAgo) return false;
-                } else if (dateFilter === 'month') {
-                    if (requestDate.getMonth() !== now.getMonth() ||
-                        requestDate.getFullYear() !== now.getFullYear()) return false;
+                if (request.request_date) {
+                    const requestDate = new Date(request.request_date);
+                    const now = new Date();
+                    if (dateFilter === 'today') {
+                        if (requestDate.toDateString() !== now.toDateString()) return false;
+                    } else if (dateFilter === 'week') {
+                        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                        if (requestDate < weekAgo) return false;
+                    } else if (dateFilter === 'month') {
+                        if (requestDate.getMonth() !== now.getMonth() ||
+                            requestDate.getFullYear() !== now.getFullYear()) return false;
+                    }
                 }
 
                 // Search filter

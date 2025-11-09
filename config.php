@@ -50,9 +50,24 @@ check_maintenance_mode();
 
 // --- Real-time Maintenance Polling ---
 function inject_maintenance_poller() {
-    // --- FIX: Do not run this poller on AJAX requests ---
+    // --- FIX: Do not run this poller on AJAX requests or API endpoints ---
     $isAjax = isset($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
-    if ($isAjax || (isset($_POST['action']) && $_SERVER['REQUEST_METHOD'] === 'POST')) {
+
+    // Check if this is an API endpoint (returns JSON)
+    $current_script = $_SERVER['PHP_SELF'] ?? '';
+    $isApiEndpoint = strpos($current_script, '/api/') !== false;
+
+    // Check if JSON content type was set
+    $headersSet = headers_list();
+    $isJsonResponse = false;
+    foreach ($headersSet as $header) {
+        if (stripos($header, 'Content-Type: application/json') !== false) {
+            $isJsonResponse = true;
+            break;
+        }
+    }
+
+    if ($isAjax || $isApiEndpoint || $isJsonResponse || (isset($_POST['action']) && $_SERVER['REQUEST_METHOD'] === 'POST')) {
         return;
     }
 
@@ -142,7 +157,7 @@ function inject_maintenance_poller() {
 
             async function checkStatus() {
                 try {
-                    const response = await fetch('/AMS%20REQ/api/status_check.php?t=' + Date.now());
+                    const response = await fetch('/AMS-REQ/api/status_check.php?t=' + Date.now());
                     const result = await response.json();
                     if (result.success && result.data.status === 'active' && result.data.end_time > Math.floor(Date.now() / 1000)) {
                         const duration = result.data.end_time - Math.floor(Date.now() / 1000);

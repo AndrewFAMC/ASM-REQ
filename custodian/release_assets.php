@@ -108,8 +108,9 @@ try {
         .badge-released { background: #E1EFFE; color: #1E429F; }
     </style>
 </head>
-<body class="bg-gray-100">
-    <div class="flex h-screen">
+<body class="bg-gray-100 font-sans">
+
+    <div class="flex h-screen bg-gray-200">
         <!-- Navigation -->
           <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
             <div class="flex items-center justify-center h-20 border-b border-gray-700">

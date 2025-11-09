@@ -324,4 +324,149 @@ function sendTagGenerationNotification($pdo, $officeId, $assetName, $tagNumber, 
         return false;
     }
 }
+
+/**
+ * Sends an email notification for request approval
+ *
+ * @param PDO $pdo The PDO database connection object.
+ * @param string $recipientEmail The email address of the recipient.
+ * @param string $recipientName The full name of the recipient.
+ * @param int $requestId The request ID.
+ * @param string $assetName The name of the asset.
+ * @param string $status The status (approved/rejected).
+ * @param string $message The notification message.
+ * @return bool True on success, false on failure.
+ */
+function sendRequestNotificationEmail($pdo, $recipientEmail, $recipientName, $requestId, $assetName, $status, $message) {
+    $smtpUser = 'mico.macapugay2004@gmail.com';
+    $smtpPass = 'gggm gqng fjgt ukfe';
+
+    if (!$smtpPass) {
+        error_log('SMTP_PASS environment variable is not set. Cannot send email.');
+        return false;
+    }
+
+    $mail = new PHPMailer(true);
+
+    try {
+        // Server Settings
+        $mail->isSMTP();
+        $mail->Host       = 'smtp.gmail.com';
+        $mail->SMTPAuth   = true;
+        $mail->Username   = $smtpUser;
+        $mail->Password   = $smtpPass;
+        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->Port       = 587;
+
+        // Performance optimizations
+        $mail->SMTPKeepAlive = true;  // Keep connection alive for better performance
+        $mail->Timeout = 10;           // Reduce timeout from default 30s to 10s
+        $mail->SMTPDebug = 0;          // Disable debug output for speed
+
+        // Recipients
+        $mail->setFrom($smtpUser, 'HCC Asset Management System');
+        $mail->addAddress($recipientEmail, $recipientName);
+
+        // Embed the logo image
+        $logoPath = __DIR__ . '/../logo/1.png';
+        if (file_exists($logoPath)) {
+            $mail->addEmbeddedImage($logoPath, 'hcc_logo', 'logo.png');
+        }
+
+        $mail->isHTML(true);
+        $statusTitle = ($status === 'approved') ? 'Approved' : 'Rejected';
+        $statusColor = ($status === 'approved') ? '#10b981' : '#ef4444';
+        $mail->Subject = "Asset Request {$statusTitle} - Request #{$requestId}";
+
+        // Construct full URLs
+        $protocol = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' || $_SERVER['SERVER_PORT'] == 443) ? "https://" : "http://";
+        $host = $_SERVER['HTTP_HOST'];
+        $basePath = dirname(dirname($_SERVER['PHP_SELF']));
+        if ($basePath === '/' || $basePath === '\\') {
+            $basePath = '';
+        }
+        $loginUrl = $protocol . $host . $basePath . '/login.php';
+        $requestsUrl = $protocol . $host . $basePath . '/my_requests.php';
+
+        $mail->Body = "
+            <!DOCTYPE html>
+            <html lang='en'>
+            <head>
+                <meta charset='UTF-8'>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <title>Request {$statusTitle}</title>
+                <link rel='preconnect' href='https://fonts.googleapis.com'>
+                <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+                <link href='https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap' rel='stylesheet'>
+                <style>
+                    body { margin: 0; padding: 0; background-color: #f4f4f4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+                    .email-wrapper { width: 100%; background-color: #f4f4f4; padding: 20px 0; }
+                    .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e5e5; border-radius: 18px; overflow: hidden; }
+                    .content { padding: 40px; }
+                    .footer { padding: 30px 40px; text-align: center; font-size: 12px; color: #888888; background-color: #f9f9f9; border-top: 1px solid #e5e5e5; }
+                    h1 { font-size: 28px; font-weight: 600; color: #000000; margin: 0 0 15px; text-align: center; }
+                    p.main-text { font-size: 17px; color: #000000; line-height: 1.5; margin: 0 0 25px; text-align: center; }
+                    .status-badge { display: inline-block; padding: 10px 20px; border-radius: 8px; background-color: {$statusColor}; color: white; font-weight: 600; margin-bottom: 20px; }
+                    .details-box { background-color: #ffffff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 25px; margin-bottom: 25px; }
+                    .details-box p { margin: 0 0 15px; font-size: 15px; color: #555555; text-align: left; }
+                    .details-box p:last-child { margin-bottom: 0; }
+                    .button { display: inline-block; background-color: #0071e3; color: #ffffff; font-size: 17px; font-weight: 500; text-decoration: none; padding: 14px 28px; border-radius: 980px; }
+                    .footer-link { color: #0071e3; text-decoration: none; }
+                </style>
+            </head>
+            <body>
+                <table role='presentation' border='0' cellpadding='0' cellspacing='0' width='100%' class='email-wrapper'>
+                    <tr>
+                        <td align='center'>
+                            <table role='presentation' border='0' cellpadding='0' cellspacing='0' class='email-container'>
+                                <tr>
+                                    <td>
+                                        <div style='text-align: center; padding: 40px 0 20px;'>
+                                            <img src='cid:hcc_logo' alt='HCC Logo' width='50' style='display: block; margin: 0 auto;' />
+                                        </div>
+                                        <div class='content'>
+                                            <div style='text-align: center;'>
+                                                <span class='status-badge'>Request {$statusTitle}</span>
+                                            </div>
+                                            <h1>Hi, " . htmlspecialchars($recipientName) . "</h1>
+                                            <p class='main-text'>" . htmlspecialchars($message) . "</p>
+
+                                            <div class='details-box'>
+                                                <p><strong>Request ID:</strong><br>#{$requestId}</p>
+                                                <p><strong>Asset:</strong><br>" . htmlspecialchars($assetName) . "</p>
+                                                <p><strong>Status:</strong><br>{$statusTitle}</p>
+                                                <p><strong>Date:</strong><br>" . date('F j, Y g:i A') . "</p>
+                                            </div>
+
+                                            <div style='text-align: center; margin-bottom: 20px;'>
+                                                <a href='{$requestsUrl}' class='button'>View My Requests</a>
+                                            </div>
+                                        </div>
+                                        <div class='footer'>
+                                            <p style='font-family: \"Great Vibes\", cursive; font-size: 40px; color: #bda54f; margin: 0 0 20px 0;'>We Find Assets</p>
+                                            <p style='margin: 0 0 10px; font-size: 12px; color: #888888; text-align: center;'>
+                                                This email was sent from the HCC Asset Management System.
+                                            </p>
+                                            <p style='margin: 0; font-size: 12px; color: #888888; text-align: center;'>
+                                                &copy; " . date('Y') . " Holy Cross Colleges. All rights reserved.
+                                            </p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </body>
+            </html>";
+
+        $mail->send();
+        logActivity($pdo, null, 'EMAIL_SENT', "Request notification email sent to {$recipientEmail} for request #{$requestId}.");
+        return true;
+    } catch (Exception $e) {
+        error_log("Message could not be sent to {$recipientEmail}. Mailer Error: {$mail->ErrorInfo}");
+        logActivity($pdo, null, 'EMAIL_FAILED', "Failed to send request notification to {$recipientEmail}. Error: {$mail->ErrorInfo}");
+        return false;
+    }
+}
 ?>

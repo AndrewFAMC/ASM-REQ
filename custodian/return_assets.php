@@ -108,8 +108,9 @@ try {
         .badge-returned { background: #DEF7EC; color: #03543F; }
     </style>
 </head>
-<body class="bg-gray-100">
-    <div class="flex h-screen">
+<body class="bg-gray-100 font-sans">
+
+    <div class="flex h-screen bg-gray-200">
         <!-- Navigation -->
         <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
             <div class="flex items-center justify-center h-20 border-b border-gray-700">
@@ -261,7 +262,8 @@ try {
 
         async loadRequests() {
             try {
-                const response = await fetch('../api/requests.php?action=get_pending_requests');
+                // Load released and returned requests for return processing
+                const response = await fetch('../api/requests.php?action=get_pending_requests&status=released,returned');
                 const data = await response.json();
 
                 if (data.success) {
@@ -528,10 +530,32 @@ try {
         }
 
         async returnAsset(requestId) {
+            // Find the request to check if it's overdue
+            const request = this.requests.find(r => r.id === requestId);
+            const isOverdue = this.isOverdue(request);
+            const daysOverdue = isOverdue ? Math.floor((new Date() - new Date(request.expected_return_date)) / (1000 * 60 * 60 * 24)) : 0;
+
             const result = await Swal.fire({
                 title: 'Process Asset Return',
                 html: `
                     <div class="text-left space-y-4">
+                        ${isOverdue ? `
+                            <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-4">
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <i class="fas fa-exclamation-triangle text-red-600"></i>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h3 class="text-sm font-medium text-red-800">Late Return Detected</h3>
+                                        <div class="mt-2 text-sm text-red-700">
+                                            <p>This asset is <strong>${daysOverdue} day(s) overdue</strong>.</p>
+                                            <p class="mt-1">Expected return: ${new Date(request.expected_return_date).toLocaleDateString()}</p>
+                                            <p class="mt-1 font-semibold">Late return remarks are required.</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        ` : ''}
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-2">Asset Condition</label>
                             <select id="assetCondition" class="w-full border border-gray-300 rounded-lg px-3 py-2">
@@ -544,17 +568,34 @@ try {
                             <label class="block text-sm font-medium text-gray-700 mb-2">Return Notes</label>
                             <textarea id="returnNotes" class="w-full border border-gray-300 rounded-lg px-3 py-2" rows="3" placeholder="Any notes about the condition or return..."></textarea>
                         </div>
+                        ${isOverdue ? `
+                            <div>
+                                <label class="block text-sm font-medium text-red-700 mb-2">
+                                    <i class="fas fa-exclamation-circle mr-1"></i>Late Return Remarks (Required)
+                                </label>
+                                <textarea id="lateReturnRemarks" class="w-full border-2 border-red-300 rounded-lg px-3 py-2 focus:border-red-500" rows="3" placeholder="Explain why the asset was returned late..." required></textarea>
+                                <p class="mt-1 text-xs text-red-600">Please provide a reason for the late return. This will be recorded in the system.</p>
+                            </div>
+                        ` : ''}
                     </div>
                 `,
-                icon: 'question',
+                icon: isOverdue ? 'warning' : 'question',
                 showCancelButton: true,
                 confirmButtonText: 'Confirm Return',
-                confirmButtonColor: '#059669',
+                confirmButtonColor: isOverdue ? '#DC2626' : '#059669',
                 cancelButtonText: 'Cancel',
                 preConfirm: () => {
+                    const lateRemarks = document.getElementById('lateReturnRemarks');
+                    if (isOverdue && lateRemarks && !lateRemarks.value.trim()) {
+                        Swal.showValidationMessage('Late return remarks are required for overdue assets');
+                        return false;
+                    }
                     return {
                         condition: document.getElementById('assetCondition').value,
-                        notes: document.getElementById('returnNotes').value
+                        notes: document.getElementById('returnNotes').value,
+                        late_return_remarks: lateRemarks ? lateRemarks.value : null,
+                        is_overdue: isOverdue,
+                        days_overdue: daysOverdue
                     };
                 }
             });
@@ -571,6 +612,9 @@ try {
                         request_id: requestId,
                         condition: result.value.condition,
                         notes: result.value.notes,
+                        late_return_remarks: result.value.late_return_remarks,
+                        is_overdue: result.value.is_overdue,
+                        days_overdue: result.value.days_overdue,
                         csrf_token: csrfToken
                     })
                 });
