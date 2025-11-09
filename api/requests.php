@@ -201,15 +201,16 @@ try {
             // Log activity
             logActivity($pdo, $request['asset_id'], 'REQUEST_APPROVED_CUSTODIAN', "Request #{$requestId} approved by custodian");
 
-            // Send email notification to requester
-            sendRequestNotificationEmail(
+            // Queue email notification to requester (async)
+            queueRequestNotificationEmail(
                 $pdo,
                 $request['requester_email'],
                 $request['requester_name'],
                 $requestId,
                 $request['asset_name'],
                 'approved',
-                "Your request for {$request['asset_name']} has been approved by the custodian and is pending final approval."
+                "Your request for {$request['asset_name']} has been approved by the custodian and is pending final approval.",
+                'normal'
             );
 
             // Determine next approver
@@ -410,15 +411,16 @@ try {
                 ]
             );
 
-            // Send email notification to requester
-            sendRequestNotificationEmail(
+            // Queue email notification to requester (async)
+            queueRequestNotificationEmail(
                 $pdo,
                 $request['requester_email'],
                 $request['requester_name'],
                 $requestId,
                 $request['asset_name'],
                 'approved',
-                "Your request for {$request['asset_name']} has been fully approved! Please coordinate with the custodian for asset pickup."
+                "Your request for {$request['asset_name']} has been fully approved! Please coordinate with the custodian for asset pickup.",
+                'high'
             );
 
             // Notify custodian to release asset
@@ -519,15 +521,16 @@ try {
                 ]
             );
 
-            // Send email notification to requester
-            sendRequestNotificationEmail(
+            // Queue email notification to requester (async)
+            queueRequestNotificationEmail(
                 $pdo,
                 $request['requester_email'],
                 $request['requester_name'],
                 $requestId,
                 $request['asset_name'],
                 'rejected',
-                "Your request for {$request['asset_name']} has been rejected. Reason: {$reason}"
+                "Your request for {$request['asset_name']} has been rejected. Reason: {$reason}",
+                'high'
             );
 
             echo json_encode([
@@ -631,15 +634,16 @@ try {
                     ]
                 );
 
-                // Send email notification to requester
-                sendRequestNotificationEmail(
+                // Queue email notification to requester (async)
+                queueRequestNotificationEmail(
                     $pdo,
                     $request['requester_email'],
                     $request['requester_name'],
                     $requestId,
                     $request['asset_name'],
                     'released',
-                    "Your requested asset '{$request['asset_name']}' has been released. Please return it by " . date('F j, Y', strtotime($request['expected_return_date'])) . "."
+                    "Your requested asset '{$request['asset_name']}' has been released. Please return it by " . date('F j, Y', strtotime($request['expected_return_date'])) . ".",
+                    'high'
                 );
 
                 echo json_encode([
@@ -754,29 +758,31 @@ try {
                     ]
                 );
 
-                // Send email notification to requester (especially important for late returns)
+                // Queue email notification to requester (async, especially important for late returns)
                 if ($isOverdue) {
                     $emailMessage = "Your borrowed asset '{$request['asset_name']}' has been returned {$daysOverdue} day(s) late. " .
                                     "Condition: {$condition}. Late return remarks: {$lateReturnRemarks}";
-                    sendRequestNotificationEmail(
+                    queueRequestNotificationEmail(
                         $pdo,
                         $request['requester_email'],
                         $request['requester_name'],
                         $requestId,
                         $request['asset_name'],
                         'late_return',
-                        $emailMessage
+                        $emailMessage,
+                        'high'
                     );
                 } else {
                     $emailMessage = "Your borrowed asset '{$request['asset_name']}' has been returned on time. Condition: {$condition}. Thank you!";
-                    sendRequestNotificationEmail(
+                    queueRequestNotificationEmail(
                         $pdo,
                         $request['requester_email'],
                         $request['requester_name'],
                         $requestId,
                         $request['asset_name'],
                         'returned',
-                        $emailMessage
+                        $emailMessage,
+                        'normal'
                     );
                 }
 

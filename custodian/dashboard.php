@@ -49,6 +49,11 @@ try {
     $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ? AND expected_return_date < CURDATE()");
     $stmt->execute([$campusId]);
     $overdueCount = (int)$stmt->fetchColumn();
+
+    // Count missing assets reports (active investigations)
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM missing_assets_reports WHERE campus_id = ? AND status IN ('reported', 'investigating')");
+    $stmt->execute([$campusId]);
+    $missingAssetsCount = (int)$stmt->fetchColumn();
 } catch (PDOException $e) {
     error_log("Error fetching custodian statistics: " . $e->getMessage());
 }
@@ -440,6 +445,18 @@ $csrfToken = $_SESSION['csrf_token'];
                         <span class="ml-auto <?= $overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500' ?> text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReturnCount ?></span>
                     <?php endif; ?>
                 </a>
+
+                <!-- Divider -->
+                <div class="border-t border-gray-700 my-2"></div>
+
+                <!-- Missing Assets -->
+                <a href="missing_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-search w-6"></i>
+                    <span>Missing Assets</span>
+                    <?php if ($missingAssetsCount > 0): ?>
+                        <span class="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $missingAssetsCount ?></span>
+                    <?php endif; ?>
+                </a>
             </nav>
         </div>
 
@@ -451,6 +468,11 @@ $csrfToken = $_SESSION['csrf_token'];
                 <div class="flex items-center space-x-4">
                     <!-- Notification Bell -->
                     <?php include __DIR__ . '/../includes/notification_center.php'; ?>
+
+                    <!-- Report Missing Asset -->
+                    <a href="../report_missing_asset.php" class="px-3 py-1 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 border border-red-700 transition-colors">
+                        <i class="fas fa-exclamation-triangle mr-1"></i> Report Missing
+                    </a>
 
                     <a href="../profile.php" class="text-sm text-gray-600 hover:text-gray-900">
                         <i class="fas fa-user-circle mr-1"></i> My Profile

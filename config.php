@@ -847,49 +847,105 @@ function checkOverdueBorrowings($pdo) {
 }
 
 /**
- * Send reminder notifications for upcoming return dates
+ * Send reminder notifications for upcoming return dates (Multi-Stage with Email)
+ *
+ * Reminder stages:
+ * - 7 days before: Advance notice
+ * - 2 days before: Upcoming return
+ * - 1 day before: Urgent reminder
+ * - Day of return: Return today
  */
 function sendReturnReminders($pdo) {
     try {
-        $reminderDays = getSystemSetting($pdo, 'reminder_days_before', 2);
+        require_once __DIR__ . '/includes/email_functions.php';
 
-        // Get borrowings that need reminders
-        $stmt = $pdo->prepare("
-            SELECT ab.*, a.asset_name, u.id as user_id, u.full_name, u.email
-            FROM asset_borrowings ab
-            JOIN assets a ON ab.asset_id = a.id
-            LEFT JOIN users u ON u.full_name = ab.borrower_name OR u.email = ab.borrower_contact
-            WHERE ab.status = 'active'
-            AND ab.expected_return_date IS NOT NULL
-            AND ab.expected_return_date = DATE_ADD(CURDATE(), INTERVAL ? DAY)
-            AND (ab.reminder_sent_date IS NULL OR DATE(ab.reminder_sent_date) < CURDATE())
-        ");
-        $stmt->execute([$reminderDays]);
-        $borrowings = $stmt->fetchAll();
+        $emailEnabled = getSystemSetting($pdo, 'enable_email_notifications', true);
 
-        $count = 0;
-        foreach ($borrowings as $borrowing) {
-            if ($borrowing['user_id']) {
-                // Create notification
-                createNotification($pdo, $borrowing['user_id'], NOTIFICATION_RETURN_REMINDER,
-                    'Return Reminder',
-                    "Please return '{$borrowing['asset_name']}' by " . date('F j, Y', strtotime($borrowing['expected_return_date'])),
+        // Define reminder stages
+        $reminderStages = [
+            ['days' => 7, 'urgency' => 'advance_notice', 'priority' => NOTIFICATION_PRIORITY_LOW],
+            ['days' => 2, 'urgency' => 'upcoming', 'priority' => NOTIFICATION_PRIORITY_HIGH],
+            ['days' => 1, 'urgency' => 'urgent', 'priority' => NOTIFICATION_PRIORITY_HIGH],
+            ['days' => 0, 'urgency' => 'today', 'priority' => NOTIFICATION_PRIORITY_URGENT]
+        ];
+
+        $totalCount = 0;
+
+        foreach ($reminderStages as $stage) {
+            $daysUntil = $stage['days'];
+            $urgencyLevel = $stage['urgency'];
+            $priority = $stage['priority'];
+
+            // Query asset_requests for released items
+            $stmt = $pdo->prepare("
+                SELECT
+                    ar.id,
+                    ar.asset_id,
+                    ar.requester_id,
+                    ar.expected_return_date,
+                    a.asset_name,
+                    u.id as user_id,
+                    u.full_name,
+                    u.email,
+                    ar.last_reminder_sent,
+                    ar.reminder_count
+                FROM asset_requests ar
+                JOIN assets a ON ar.asset_id = a.id
+                JOIN users u ON ar.requester_id = u.id
+                WHERE ar.status = 'released'
+                AND ar.expected_return_date IS NOT NULL
+                AND ar.expected_return_date = DATE_ADD(CURDATE(), INTERVAL ? DAY)
+                AND (
+                    ar.last_reminder_sent IS NULL
+                    OR DATE(ar.last_reminder_sent) < CURDATE()
+                    OR (? = 0 AND TIME(ar.last_reminder_sent) < TIME(DATE_SUB(NOW(), INTERVAL 4 HOUR)))
+                )
+            ");
+            $stmt->execute([$daysUntil, $daysUntil]);
+            $requests = $stmt->fetchAll();
+
+            foreach ($requests as $request) {
+                // Create in-app notification
+                createNotification($pdo, $request['user_id'], NOTIFICATION_RETURN_REMINDER,
+                    $daysUntil == 0 ? 'Return Asset Today' : "Return Reminder ({$daysUntil} days)",
+                    "Please return '{$request['asset_name']}' " .
+                    ($daysUntil == 0 ? 'TODAY' : "in {$daysUntil} day(s)"),
                     [
-                        'related_type' => 'borrowing',
-                        'related_id' => $borrowing['id'],
-                        'priority' => NOTIFICATION_PRIORITY_HIGH
+                        'related_type' => 'request',
+                        'related_id' => $request['id'],
+                        'priority' => $priority,
+                        'action_url' => '/employee/my_requests.php'
                     ]
                 );
 
-                // Update reminder sent date
-                $updateStmt = $pdo->prepare("UPDATE asset_borrowings SET reminder_sent_date = NOW() WHERE id = ?");
-                $updateStmt->execute([$borrowing['id']]);
+                // Send email notification if enabled
+                if ($emailEnabled && $request['email']) {
+                    sendReturnReminderEmail(
+                        $pdo,
+                        $request['email'],
+                        $request['full_name'],
+                        $request['asset_name'],
+                        $request['expected_return_date'],
+                        $daysUntil,
+                        $request['id'],
+                        $urgencyLevel
+                    );
+                }
 
-                $count++;
+                // Update reminder tracking
+                $reminderCount = (int)($request['reminder_count'] ?? 0) + 1;
+                $updateStmt = $pdo->prepare("
+                    UPDATE asset_requests
+                    SET last_reminder_sent = NOW(), reminder_count = ?
+                    WHERE id = ?
+                ");
+                $updateStmt->execute([$reminderCount, $request['id']]);
+
+                $totalCount++;
             }
         }
 
-        return $count;
+        return $totalCount;
     } catch (PDOException $e) {
         error_log("Error sending return reminders: " . $e->getMessage());
         return 0;
@@ -897,47 +953,163 @@ function sendReturnReminders($pdo) {
 }
 
 /**
- * Send overdue notifications
+ * Send overdue notifications with escalation chain
+ *
+ * Escalation levels:
+ * - Day 1-3: Email to borrower only
+ * - Day 4-7: Email to borrower + custodian
+ * - Day 8-30: Email to borrower + custodian + admin
+ * - Day 30+: Mark as potentially lost
  */
 function sendOverdueNotifications($pdo) {
     try {
-        // Get overdue borrowings that haven't been notified
+        require_once __DIR__ . '/includes/email_functions.php';
+
+        $emailEnabled = getSystemSetting($pdo, 'enable_email_notifications', true);
+
+        // Get overdue asset_requests
         $stmt = $pdo->prepare("
-            SELECT ab.*, a.asset_name, u.id as user_id, u.full_name
-            FROM asset_borrowings ab
-            JOIN assets a ON ab.asset_id = a.id
-            LEFT JOIN users u ON u.full_name = ab.borrower_name
-            WHERE ab.status = 'overdue'
-            AND ab.overdue_notification_sent = FALSE
+            SELECT
+                ar.id,
+                ar.asset_id,
+                ar.requester_id,
+                ar.expected_return_date,
+                ar.campus_id,
+                ar.last_overdue_alert_sent,
+                ar.overdue_alert_count,
+                a.asset_name,
+                u.id as user_id,
+                u.full_name,
+                u.email,
+                DATEDIFF(CURDATE(), ar.expected_return_date) as days_overdue
+            FROM asset_requests ar
+            JOIN assets a ON ar.asset_id = a.id
+            JOIN users u ON ar.requester_id = u.id
+            WHERE ar.status = 'released'
+            AND ar.expected_return_date < CURDATE()
+            AND (
+                ar.last_overdue_alert_sent IS NULL
+                OR DATE(ar.last_overdue_alert_sent) < CURDATE()
+            )
         ");
         $stmt->execute();
-        $borrowings = $stmt->fetchAll();
+        $overdueRequests = $stmt->fetchAll();
 
         $count = 0;
-        foreach ($borrowings as $borrowing) {
-            if ($borrowing['user_id']) {
-                $daysOverdue = (int)date_diff(
-                    date_create($borrowing['expected_return_date']),
-                    date_create()
-                )->format('%a');
+        foreach ($overdueRequests as $request) {
+            $daysOverdue = (int)$request['days_overdue'];
 
-                // Create urgent notification
-                createNotification($pdo, $borrowing['user_id'], NOTIFICATION_OVERDUE_ALERT,
-                    'Overdue Item',
-                    "'{$borrowing['asset_name']}' is {$daysOverdue} day(s) overdue. Please return it immediately.",
-                    [
-                        'related_type' => 'borrowing',
-                        'related_id' => $borrowing['id'],
-                        'priority' => NOTIFICATION_PRIORITY_URGENT
-                    ]
+            // Send notification to borrower
+            createNotification($pdo, $request['user_id'], NOTIFICATION_OVERDUE_ALERT,
+                'Overdue Asset',
+                "'{$request['asset_name']}' is {$daysOverdue} day(s) overdue. Please return it immediately.",
+                [
+                    'related_type' => 'request',
+                    'related_id' => $request['id'],
+                    'priority' => NOTIFICATION_PRIORITY_URGENT,
+                    'action_url' => '/employee/my_requests.php'
+                ]
+            );
+
+            // Send email to borrower
+            if ($emailEnabled && $request['email']) {
+                sendOverdueAlertEmail(
+                    $pdo,
+                    $request['email'],
+                    $request['full_name'],
+                    $request['asset_name'],
+                    $request['expected_return_date'],
+                    $daysOverdue,
+                    $request['id'],
+                    'borrower'
                 );
-
-                // Mark as notified
-                $updateStmt = $pdo->prepare("UPDATE asset_borrowings SET overdue_notification_sent = TRUE WHERE id = ?");
-                $updateStmt->execute([$borrowing['id']]);
-
-                $count++;
             }
+
+            // ESCALATION LEVEL 1: Days 4-7 - Notify custodians
+            if ($daysOverdue >= 4 && $daysOverdue <= 7) {
+                $custodianStmt = $pdo->prepare("
+                    SELECT id, email, full_name
+                    FROM users
+                    WHERE role = 'custodian'
+                    AND campus_id = ?
+                    AND is_active = 1
+                ");
+                $custodianStmt->execute([$request['campus_id']]);
+                $custodians = $custodianStmt->fetchAll();
+
+                foreach ($custodians as $custodian) {
+                    createNotification($pdo, $custodian['id'], NOTIFICATION_OVERDUE_ALERT,
+                        'Overdue Asset Alert',
+                        "Asset '{$request['asset_name']}' is {$daysOverdue} days overdue. Borrower: {$request['full_name']}",
+                        [
+                            'related_type' => 'request',
+                            'related_id' => $request['id'],
+                            'priority' => NOTIFICATION_PRIORITY_HIGH
+                        ]
+                    );
+
+                    if ($emailEnabled && $custodian['email']) {
+                        sendOverdueAlertEmail(
+                            $pdo,
+                            $custodian['email'],
+                            $custodian['full_name'],
+                            $request['asset_name'],
+                            $request['expected_return_date'],
+                            $daysOverdue,
+                            $request['id'],
+                            'custodian'
+                        );
+                    }
+                }
+            }
+
+            // ESCALATION LEVEL 2: Days 8+ - Notify admins
+            if ($daysOverdue >= 8) {
+                $adminStmt = $pdo->prepare("
+                    SELECT id, email, full_name
+                    FROM users
+                    WHERE role IN ('admin', 'super_admin')
+                    AND is_active = 1
+                ");
+                $adminStmt->execute();
+                $admins = $adminStmt->fetchAll();
+
+                foreach ($admins as $admin) {
+                    createNotification($pdo, $admin['id'], NOTIFICATION_OVERDUE_ALERT,
+                        'Overdue Asset Escalation',
+                        "ESCALATION: Asset '{$request['asset_name']}' is {$daysOverdue} days overdue. Borrower: {$request['full_name']}",
+                        [
+                            'related_type' => 'request',
+                            'related_id' => $request['id'],
+                            'priority' => NOTIFICATION_PRIORITY_URGENT
+                        ]
+                    );
+
+                    if ($emailEnabled && $admin['email']) {
+                        sendOverdueAlertEmail(
+                            $pdo,
+                            $admin['email'],
+                            $admin['full_name'],
+                            $request['asset_name'],
+                            $request['expected_return_date'],
+                            $daysOverdue,
+                            $request['id'],
+                            'admin'
+                        );
+                    }
+                }
+            }
+
+            // Update tracking
+            $alertCount = (int)($request['overdue_alert_count'] ?? 0) + 1;
+            $updateStmt = $pdo->prepare("
+                UPDATE asset_requests
+                SET last_overdue_alert_sent = NOW(), overdue_alert_count = ?
+                WHERE id = ?
+            ");
+            $updateStmt->execute([$alertCount, $request['id']]);
+
+            $count++;
         }
 
         return $count;

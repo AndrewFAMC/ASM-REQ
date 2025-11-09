@@ -1413,5 +1413,7 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 </script>
 
+<?php include 'includes/email_worker_autostart.php'; ?>
+
 </body>
 </html>

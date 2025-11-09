@@ -44,6 +44,11 @@ try {
     $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ? AND expected_return_date < CURDATE()");
     $stmt->execute([$campusId]);
     $overdueCount = (int)$stmt->fetchColumn();
+
+    // Count missing assets reports (active investigations)
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM missing_assets_reports WHERE campus_id = ? AND status IN ('reported', 'investigating')");
+    $stmt->execute([$campusId]);
+    $missingAssetsCount = (int)$stmt->fetchColumn();
 } catch (PDOException $e) {
     error_log("Error fetching custodian statistics: " . $e->getMessage());
 }
@@ -152,15 +157,37 @@ try {
                         <span class="ml-auto <?= $overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500' ?> text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReturnCount ?></span>
                     <?php endif; ?>
                 </a>
+
+                <!-- Divider -->
+                <div class="border-t border-gray-700 my-2"></div>
+
+                <!-- Missing Assets -->
+                <a href="missing_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-search w-6"></i>
+                    <span>Missing Assets</span>
+                    <?php if ($missingAssetsCount > 0): ?>
+                        <span class="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $missingAssetsCount ?></span>
+                    <?php endif; ?>
+                </a>
             </nav>
         </div>
 
-        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Main content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
             <!-- Header -->
-            <div class="mb-6">
-                <h2 class="text-2xl font-bold text-gray-900">Release Approved Assets</h2>
-                <p class="text-gray-600 mt-1">Hand out approved assets to requesters</p>
-            </div>
+            <header class="flex items-center justify-between p-4 bg-white border-b border-gray-200">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-900">Release Approved Assets</h2>
+                    <p class="text-gray-600 mt-1">Hand out approved assets to requesters</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-600">Welcome, <strong><?= htmlspecialchars($user['full_name']) ?></strong></span>
+                    <a href="../logout.php" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm">Logout</a>
+                </div>
+            </header>
+
+            <main class="flex-1 overflow-y-auto p-8">
+                <div class="max-w-7xl mx-auto">
 
             <!-- Statistics Cards -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -231,8 +258,11 @@ try {
                     <p class="text-gray-600">Loading requests...</p>
                 </div>
             </div>
-        </main>
-    </div>
+
+                </div> <!-- Close max-w-7xl -->
+            </main>
+        </div> <!-- Close flex-1 flex flex-col -->
+    </div> <!-- Close main flex container -->
 
     <!-- Release Modal -->
     <div id="releaseModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">

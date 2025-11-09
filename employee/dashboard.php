@@ -236,6 +236,11 @@ $csrfToken = generateCSRFToken();
                         <i class="fas fa-plus-circle mr-2"></i>Request Asset
                     </a>
 
+                    <!-- Report Missing Asset Button -->
+                    <a href="../report_missing_asset.php" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                        <i class="fas fa-exclamation-triangle mr-2"></i>Report Missing
+                    </a>
+
                     <!-- Notification Bell -->
                     <?php include __DIR__ . '/../includes/notification_center.php'; ?>
 

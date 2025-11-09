@@ -44,6 +44,11 @@ try {
     $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ? AND expected_return_date < CURDATE()");
     $stmt->execute([$campusId]);
     $overdueCount = (int)$stmt->fetchColumn();
+
+    // Count missing assets reports (active investigations)
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM missing_assets_reports WHERE campus_id = ? AND status IN ('reported', 'investigating')");
+    $stmt->execute([$campusId]);
+    $missingAssetsCount = (int)$stmt->fetchColumn();
 } catch (PDOException $e) {
     error_log("Error fetching custodian statistics: " . $e->getMessage());
 }
@@ -152,15 +157,37 @@ try {
                         <span class="ml-auto <?= $overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500' ?> text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReturnCount ?></span>
                     <?php endif; ?>
                 </a>
+
+                <!-- Divider -->
+                <div class="border-t border-gray-700 my-2"></div>
+
+                <!-- Missing Assets -->
+                <a href="missing_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-search w-6"></i>
+                    <span>Missing Assets</span>
+                    <?php if ($missingAssetsCount > 0): ?>
+                        <span class="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $missingAssetsCount ?></span>
+                    <?php endif; ?>
+                </a>
             </nav>
         </div>
 
-        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <!-- Main content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
             <!-- Header -->
-            <div class="mb-6">
-                <h2 class="text-2xl font-bold text-gray-900">Process Asset Returns</h2>
-                <p class="text-gray-600 mt-1">Receive assets back from employees</p>
-            </div>
+            <header class="flex items-center justify-between p-4 bg-white border-b border-gray-200">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-900">Process Asset Returns</h2>
+                    <p class="text-gray-600 mt-1">Receive assets back from employees</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-600">Welcome, <strong><?= htmlspecialchars($user['full_name']) ?></strong></span>
+                    <a href="../logout.php" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm">Logout</a>
+                </div>
+            </header>
+
+            <main class="flex-1 overflow-y-auto p-8">
+                <div class="max-w-7xl mx-auto">
 
             <!-- Statistics Cards -->
             <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -232,13 +259,52 @@ try {
                     <p class="text-gray-600">Loading requests...</p>
                 </div>
             </div>
-        </main>
-    </div>
+
+                </div> <!-- Close max-w-7xl -->
+            </main>
+        </div> <!-- Close flex-1 flex flex-col -->
+    </div> <!-- Close main flex container -->
 
     <!-- Return Modal -->
     <div id="returnModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
         <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
             <div id="modalContent"></div>
+        </div>
+    </div>
+
+    <!-- Transfer Modal -->
+    <div id="transferModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-xl font-bold text-gray-900">
+                        <i class="fas fa-exchange-alt text-blue-600 mr-2"></i>
+                        Record Asset Transfer
+                    </h3>
+                    <button onclick="returnManager.closeTransferModal()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div id="transferModalContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Transfer History Modal -->
+    <div id="transferHistoryModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+            <div class="p-6">
+                <div class="flex items-center justify-between mb-6">
+                    <h3 class="text-xl font-bold text-gray-900">
+                        <i class="fas fa-history text-purple-600 mr-2"></i>
+                        Transfer History
+                    </h3>
+                    <button onclick="returnManager.closeTransferHistoryModal()" class="text-gray-400 hover:text-gray-600">
+                        <i class="fas fa-times text-xl"></i>
+                    </button>
+                </div>
+                <div id="transferHistoryContent"></div>
+            </div>
         </div>
     </div>
 
@@ -433,6 +499,14 @@ try {
                                 <i class="fas fa-eye mr-2"></i>View Details
                             </button>
                             ${canReturn ? `
+                                <button onclick="returnManager.recordTransfer(${request.id})"
+                                        class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap">
+                                    <i class="fas fa-exchange-alt mr-2"></i>Record Transfer
+                                </button>
+                                <button onclick="returnManager.viewTransferHistory(${request.id})"
+                                        class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap">
+                                    <i class="fas fa-history mr-2"></i>Transfer History
+                                </button>
                                 <button onclick="returnManager.returnAsset(${request.id})"
                                         class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap">
                                     <i class="fas fa-check mr-2"></i>Process Return
@@ -535,10 +609,122 @@ try {
             const isOverdue = this.isOverdue(request);
             const daysOverdue = isOverdue ? Math.floor((new Date() - new Date(request.expected_return_date)) / (1000 * 60 * 60 * 24)) : 0;
 
+            // Step 1: Ask who is returning the asset (detect indirect returns)
+            const borrowerCheck = await Swal.fire({
+                title: 'Who is Returning This Asset?',
+                html: `
+                    <div class="text-left space-y-4">
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                            <p class="text-sm text-blue-900">
+                                <i class="fas fa-info-circle mr-2"></i>
+                                <strong>Original Borrower:</strong> ${this.escapeHtml(request.requester_name)}
+                            </p>
+                            <p class="text-sm text-blue-900 mt-2">
+                                <i class="fas fa-box mr-2"></i>
+                                <strong>Asset:</strong> ${this.escapeHtml(request.asset_name)}
+                            </p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                <i class="fas fa-user mr-1"></i>Person Returning Asset
+                            </label>
+                            <input type="text" id="returningPerson" value="${this.escapeHtml(request.requester_name)}"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                                   placeholder="Name of person physically returning the asset">
+                            <p class="text-xs text-gray-500 mt-1">
+                                If different from original borrower, we'll help you record the transfer chain.
+                            </p>
+                        </div>
+                    </div>
+                `,
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Continue',
+                confirmButtonColor: '#3b82f6',
+                cancelButtonText: 'Cancel',
+                preConfirm: () => {
+                    const returningPerson = document.getElementById('returningPerson').value.trim();
+                    if (!returningPerson) {
+                        Swal.showValidationMessage('Please enter the name of the person returning the asset');
+                        return false;
+                    }
+                    return { returningPerson };
+                }
+            });
+
+            if (!borrowerCheck.isConfirmed) return;
+
+            const returningPerson = borrowerCheck.value.returningPerson;
+            const isOriginalBorrower = (returningPerson.toLowerCase() === request.requester_name.toLowerCase());
+
+            // Step 2: If not original borrower, offer to record transfer
+            if (!isOriginalBorrower) {
+                const transferPrompt = await Swal.fire({
+                    title: 'Indirect Return Detected',
+                    html: `
+                        <div class="text-left space-y-4">
+                            <div class="bg-orange-50 border-l-4 border-orange-500 p-4">
+                                <div class="flex">
+                                    <div class="flex-shrink-0">
+                                        <i class="fas fa-exclamation-triangle text-orange-600"></i>
+                                    </div>
+                                    <div class="ml-3">
+                                        <h3 class="text-sm font-medium text-orange-800">Transfer Chain Alert</h3>
+                                        <div class="mt-2 text-sm text-orange-700">
+                                            <p><strong>${returningPerson}</strong> is returning this asset,</p>
+                                            <p>but it was originally borrowed by <strong>${this.escapeHtml(request.requester_name)}</strong></p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <p class="text-sm text-gray-700">
+                                Would you like to record this transfer for tracking purposes?
+                            </p>
+                            <p class="text-xs text-gray-600">
+                                This helps maintain the chain of custody and identify who had the asset.
+                            </p>
+                        </div>
+                    `,
+                    icon: 'warning',
+                    showDenyButton: true,
+                    showCancelButton: true,
+                    confirmButtonText: '<i class="fas fa-exchange-alt mr-2"></i>Record Transfer & Continue',
+                    denyButtonText: 'Skip Transfer Recording',
+                    cancelButtonText: 'Cancel Return',
+                    confirmButtonColor: '#3b82f6',
+                    denyButtonColor: '#6b7280'
+                });
+
+                if (transferPrompt.isDismissed) return;
+
+                if (transferPrompt.isConfirmed) {
+                    // Record the transfer first
+                    await this.recordTransfer(requestId);
+                    // Don't continue with return - let user click return again
+                    await Swal.fire({
+                        icon: 'info',
+                        title: 'Transfer Recorded',
+                        text: 'Please click "Process Return" again to complete the asset return.',
+                        confirmButtonColor: '#3b82f6'
+                    });
+                    return;
+                }
+                // If denied, continue with return but add note about indirect return
+            }
+
+            // Step 3: Process the return
             const result = await Swal.fire({
                 title: 'Process Asset Return',
                 html: `
                     <div class="text-left space-y-4">
+                        ${!isOriginalBorrower ? `
+                            <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+                                <p class="text-xs text-yellow-900">
+                                    <i class="fas fa-info-circle mr-1"></i>
+                                    <strong>Note:</strong> Indirect return from ${returningPerson}
+                                </p>
+                            </div>
+                        ` : ''}
                         ${isOverdue ? `
                             <div class="bg-red-50 border-l-4 border-red-500 p-4 mb-4">
                                 <div class="flex">
@@ -595,7 +781,9 @@ try {
                         notes: document.getElementById('returnNotes').value,
                         late_return_remarks: lateRemarks ? lateRemarks.value : null,
                         is_overdue: isOverdue,
-                        days_overdue: daysOverdue
+                        days_overdue: daysOverdue,
+                        returning_person: returningPerson,
+                        is_indirect_return: !isOriginalBorrower
                     };
                 }
             });
@@ -615,6 +803,8 @@ try {
                         late_return_remarks: result.value.late_return_remarks,
                         is_overdue: result.value.is_overdue,
                         days_overdue: result.value.days_overdue,
+                        returning_person: result.value.returning_person,
+                        is_indirect_return: result.value.is_indirect_return,
                         csrf_token: csrfToken
                     })
                 });
@@ -634,8 +824,256 @@ try {
             }
         }
 
+        async recordTransfer(requestId) {
+            try {
+                // Get request details first
+                const response = await fetch(`../api/requests.php?action=get_request&request_id=${requestId}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.message || 'Failed to load request details');
+                }
+
+                const request = data.request;
+
+                // Show transfer modal
+                const modal = document.getElementById('transferModal');
+                const content = document.getElementById('transferModalContent');
+
+                content.innerHTML = `
+                    <div class="space-y-6">
+                        <!-- Asset Info -->
+                        <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <h4 class="font-semibold text-blue-900 mb-2">Asset Information</h4>
+                            <p class="text-sm text-blue-800"><strong>Asset:</strong> ${this.escapeHtml(request.asset_name)}</p>
+                            <p class="text-sm text-blue-800"><strong>Original Borrower:</strong> ${this.escapeHtml(request.requester_name)}</p>
+                            <p class="text-sm text-blue-800"><strong>Expected Return:</strong> ${new Date(request.expected_return_date).toLocaleDateString()}</p>
+                        </div>
+
+                        <!-- Transfer Form -->
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-user text-gray-500 mr-1"></i>From Person (Current Holder)
+                                </label>
+                                <input type="text" id="fromPerson" value="${this.escapeHtml(request.requester_name)}"
+                                       class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                                       placeholder="Name of person transferring the asset">
+                                <p class="text-xs text-gray-500 mt-1">Default is the original borrower. Update if asset has been transferred before.</p>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-user-plus text-gray-500 mr-1"></i>To Person (New Holder) <span class="text-red-500">*</span>
+                                </label>
+                                <input type="text" id="toPerson" class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                                       placeholder="Name of person receiving the asset" required>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-phone text-gray-500 mr-1"></i>Contact Number of New Holder
+                                </label>
+                                <input type="text" id="toPersonContact" class="w-full border border-gray-300 rounded-lg px-3 py-2"
+                                       placeholder="Phone or email of new holder">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-calendar text-gray-500 mr-1"></i>Transfer Date
+                                </label>
+                                <input type="datetime-local" id="transferDate" value="${new Date().toISOString().slice(0, 16)}"
+                                       class="w-full border border-gray-300 rounded-lg px-3 py-2">
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">
+                                    <i class="fas fa-sticky-note text-gray-500 mr-1"></i>Transfer Notes
+                                </label>
+                                <textarea id="transferNotes" class="w-full border border-gray-300 rounded-lg px-3 py-2" rows="3"
+                                          placeholder="Reason for transfer or any additional notes..."></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="flex items-center justify-end space-x-3 pt-4 border-t">
+                            <button onclick="returnManager.closeTransferModal()"
+                                    class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded-lg">
+                                Cancel
+                            </button>
+                            <button onclick="returnManager.submitTransfer(${requestId})"
+                                    class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg">
+                                <i class="fas fa-check mr-2"></i>Record Transfer
+                            </button>
+                        </div>
+                    </div>
+                `;
+
+                modal.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error loading transfer form:', error);
+                Swal.fire('Error', 'Failed to load transfer form', 'error');
+            }
+        }
+
+        async submitTransfer(requestId) {
+            const fromPerson = document.getElementById('fromPerson').value.trim();
+            const toPerson = document.getElementById('toPerson').value.trim();
+            const toPersonContact = document.getElementById('toPersonContact').value.trim();
+            const transferDate = document.getElementById('transferDate').value;
+            const notes = document.getElementById('transferNotes').value.trim();
+
+            if (!fromPerson || !toPerson) {
+                Swal.fire('Validation Error', 'Both "From Person" and "To Person" are required', 'warning');
+                return;
+            }
+
+            try {
+                const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                const response = await fetch('../api/transfer_asset.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-Token': csrfToken
+                    },
+                    body: JSON.stringify({
+                        action: 'record_transfer',
+                        request_id: requestId,
+                        from_person: fromPerson,
+                        to_person: toPerson,
+                        to_person_contact: toPersonContact,
+                        transfer_date: transferDate,
+                        notes: notes
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Transfer Recorded!',
+                        html: `Asset transfer from <strong>${fromPerson}</strong> to <strong>${toPerson}</strong> has been recorded successfully.`,
+                        confirmButtonColor: '#3b82f6'
+                    });
+                    this.closeTransferModal();
+                    await this.loadRequests();
+                } else {
+                    throw new Error(data.message || 'Failed to record transfer');
+                }
+            } catch (error) {
+                console.error('Error recording transfer:', error);
+                Swal.fire('Error', error.message, 'error');
+            }
+        }
+
+        async viewTransferHistory(requestId) {
+            try {
+                const response = await fetch(`../api/transfer_asset.php?action=get_transfer_chain&request_id=${requestId}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.message || 'Failed to load transfer history');
+                }
+
+                const transfers = data.data;
+                const modal = document.getElementById('transferHistoryModal');
+                const content = document.getElementById('transferHistoryContent');
+
+                if (transfers.length === 0) {
+                    content.innerHTML = `
+                        <div class="text-center py-12">
+                            <i class="fas fa-inbox text-gray-300 text-5xl mb-4"></i>
+                            <p class="text-gray-500 text-lg">No transfer history found</p>
+                            <p class="text-gray-400 text-sm mt-2">This asset has not been transferred between borrowers yet.</p>
+                        </div>
+                    `;
+                } else {
+                    content.innerHTML = `
+                        <div class="space-y-4">
+                            <div class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                                <p class="text-sm text-blue-900">
+                                    <i class="fas fa-info-circle mr-2"></i>
+                                    <strong>${transfers.length}</strong> transfer(s) recorded for this asset
+                                </p>
+                            </div>
+
+                            ${transfers.map((transfer, index) => `
+                                <div class="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+                                    <div class="flex items-start justify-between mb-3">
+                                        <div class="flex items-center">
+                                            <div class="bg-purple-100 rounded-full w-10 h-10 flex items-center justify-center mr-3">
+                                                <span class="font-bold text-purple-600">#${transfers.length - index}</span>
+                                            </div>
+                                            <div>
+                                                <h5 class="font-semibold text-gray-900">Transfer ${transfers.length - index}</h5>
+                                                <p class="text-xs text-gray-500">
+                                                    <i class="far fa-clock mr-1"></i>
+                                                    ${new Date(transfer.transfer_date).toLocaleString()}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <span class="px-3 py-1 rounded-full text-xs font-medium ${transfer.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}">
+                                            ${transfer.status === 'active' ? '● Active' : '○ Completed'}
+                                        </span>
+                                    </div>
+
+                                    <div class="grid grid-cols-2 gap-4 mb-3">
+                                        <div class="bg-red-50 border border-red-200 rounded p-3">
+                                            <p class="text-xs text-red-600 font-medium mb-1">
+                                                <i class="fas fa-user-minus mr-1"></i>FROM
+                                            </p>
+                                            <p class="font-semibold text-gray-900">${this.escapeHtml(transfer.from_person)}</p>
+                                        </div>
+                                        <div class="bg-green-50 border border-green-200 rounded p-3">
+                                            <p class="text-xs text-green-600 font-medium mb-1">
+                                                <i class="fas fa-user-plus mr-1"></i>TO
+                                            </p>
+                                            <p class="font-semibold text-gray-900">${this.escapeHtml(transfer.to_person)}</p>
+                                            ${transfer.to_person_contact ? `
+                                                <p class="text-xs text-gray-600 mt-1">
+                                                    <i class="fas fa-phone mr-1"></i>${this.escapeHtml(transfer.to_person_contact)}
+                                                </p>
+                                            ` : ''}
+                                        </div>
+                                    </div>
+
+                                    ${transfer.notes ? `
+                                        <div class="bg-gray-50 border border-gray-200 rounded p-3 mb-3">
+                                            <p class="text-xs text-gray-600 font-medium mb-1">
+                                                <i class="fas fa-sticky-note mr-1"></i>Notes
+                                            </p>
+                                            <p class="text-sm text-gray-700">${this.escapeHtml(transfer.notes)}</p>
+                                        </div>
+                                    ` : ''}
+
+                                    <div class="text-xs text-gray-500">
+                                        <i class="fas fa-user-shield mr-1"></i>
+                                        Recorded by: ${transfer.recorded_by_name || 'System'}
+                                    </div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                }
+
+                modal.classList.remove('hidden');
+            } catch (error) {
+                console.error('Error loading transfer history:', error);
+                Swal.fire('Error', 'Failed to load transfer history', 'error');
+            }
+        }
+
         closeModal() {
             document.getElementById('returnModal').classList.add('hidden');
+        }
+
+        closeTransferModal() {
+            document.getElementById('transferModal').classList.add('hidden');
+        }
+
+        closeTransferHistoryModal() {
+            document.getElementById('transferHistoryModal').classList.add('hidden');
         }
 
         escapeHtml(text) {
