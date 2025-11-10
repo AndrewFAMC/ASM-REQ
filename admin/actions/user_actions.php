@@ -82,10 +82,11 @@ function getAllUsers($pdo, $filters = []) {
         // Get current user info to apply campus restrictions for admins
         $currentUser = getUserInfo();
         if ($currentUser['role'] === 'admin') {
-            // Admins can only see staff and custodian from their assigned campus
+            // Admins can see all non-admin users from their assigned campus
             $where[] = "u.campus_id = ?";
             $params[] = $currentUser['campus_id'];
-            $where[] = "u.role IN ('staff', 'custodian')";
+            // Include all role types: office, employee, custodian (and legacy staff/user for backward compatibility)
+            $where[] = "u.role IN ('office', 'employee', 'custodian', 'staff', 'user', 'admin')";
         }
 
         if (!empty($filters['campus_id'])) {
@@ -114,10 +115,15 @@ function getAllUsers($pdo, $filters = []) {
         $whereClause = !empty($where) ? 'WHERE ' . implode(' AND ', $where) : '';
 
         $stmt = $pdo->prepare("
-            SELECT u.*, c.campus_name,
-                   (SELECT COUNT(*) FROM assets a WHERE a.assigned_to = u.id) as asset_count
+            SELECT u.*, c.campus_name, o.office_name,
+                   (SELECT COUNT(*) FROM assets a WHERE a.assigned_to = u.id) as asset_count,
+                   da.id as approver_id,
+                   da.approval_level,
+                   da.is_active as is_approver_active
             FROM users u
             LEFT JOIN campuses c ON u.campus_id = c.id
+            LEFT JOIN offices o ON u.office_id = o.id
+            LEFT JOIN department_approvers da ON u.id = da.approver_user_id AND da.office_id = u.office_id AND da.is_active = 1
             $whereClause
             ORDER BY u.created_at DESC
         ");
@@ -145,7 +151,7 @@ function createStaffAccount($pdo, $data) {
             $data['role'] = strtolower(trim($data['role']));
         }
         // Validate role against allowed enum values
-        $allowedRoles = ['admin', 'custodian', 'staff', 'user'];
+        $allowedRoles = ['admin', 'custodian', 'office', 'employee', 'staff', 'user']; // staff and user kept for backward compatibility
         if (empty($data['role']) || !in_array($data['role'], $allowedRoles, true)) {
             throw new Exception("Invalid role supplied");
         }
@@ -161,6 +167,16 @@ function createStaffAccount($pdo, $data) {
         // Validate required fields (password can be auto-assigned based on role)
         if (empty($data['username']) || empty($data['full_name']) || empty($data['role'])) {
             throw new Exception("Missing required fields");
+        }
+
+        // Validate campus and office for office approvers
+        if (isset($data['is_approver']) && $data['is_approver'] && strtolower($data['role']) === 'office') {
+            if (empty($data['campus_id'])) {
+                throw new Exception("Campus is required for office approvers");
+            }
+            if (empty($data['office_id'])) {
+                throw new Exception("Office is required for office approvers");
+            }
         }
 
         // Check if username already exists
@@ -203,45 +219,68 @@ function createStaffAccount($pdo, $data) {
             $data['email'] = $emailCandidate;
         }
 
-        // Determine default password if not provided based on role
+        // Determine default password if not provided
         $forcePasswordChange = false;
         if (empty($data['password'])) {
-            if ($data['role'] === 'staff') {
-                $data['password'] = 'staff1234';
-                $forcePasswordChange = true;
-            } elseif ($data['role'] === 'custodian') {
-                $data['password'] = 'custodian1234';
-                $forcePasswordChange = true;
-            } else {
-                throw new Exception("Password is required for role: " . $data['role']);
-            }
+            // Use default password 'hccams1' for all roles
+            $data['password'] = 'hccams1';
+            $forcePasswordChange = true;
         }
 
         // Hash the password
         $hashedPassword = password_hash($data['password'], PASSWORD_DEFAULT);
 
-        // Insert new user with force_password_change flag if using default password
-        $stmt = $pdo->prepare("
-            INSERT INTO users (username, password_hash, full_name, email, role, campus_id, is_active, force_password_change, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, TRUE, ?, NOW())
-        ");
-        $stmt->execute([
-            $data['username'], 
-            $hashedPassword, 
-            $data['full_name'], 
-            $data['email'], 
-            $data['role'], 
-            $data['campus_id'],
-            $forcePasswordChange ? 1 : 0
-        ]);
+        // Begin transaction to ensure user is created before approver record
+        $pdo->beginTransaction();
 
-        // If a default password was used, send a welcome email
-        if ($forcePasswordChange) {
-            $defaultPassword = $data['password']; // The password that was just set
-            sendAccountCreationEmail($pdo, $data['email'], $data['full_name'], $defaultPassword);
+        try {
+            // Insert new user with force_password_change flag if using default password
+            $stmt = $pdo->prepare("
+                INSERT INTO users (username, password_hash, full_name, email, role, campus_id, office_id, is_active, force_password_change, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, ?, NOW())
+            ");
+            $stmt->execute([
+                $data['username'],
+                $hashedPassword,
+                $data['full_name'],
+                $data['email'],
+                $data['role'],
+                $data['campus_id'],
+                $data['office_id'] ?? null,
+                $forcePasswordChange ? 1 : 0
+            ]);
+
+            $userId = $pdo->lastInsertId();
+
+            // Handle approver assignment (only for office role)
+            if (isset($data['is_approver']) && $data['is_approver'] && !empty($data['office_id']) && !empty($data['campus_id'])) {
+                // Verify role is office
+                if (strtolower($data['role']) === 'office') {
+                    $approvalLevel = $data['approval_level'] ?? 'primary';
+                    $stmt = $pdo->prepare("
+                        INSERT INTO department_approvers (office_id, approver_user_id, approval_level, campus_id, assigned_date, is_active)
+                        VALUES (?, ?, ?, ?, CURRENT_DATE, 1)
+                    ");
+                    $stmt->execute([$data['office_id'], $userId, $approvalLevel, $data['campus_id']]);
+                    error_log("Created department approver for user $userId at office {$data['office_id']} with level {$approvalLevel}");
+                }
+            }
+
+            // Commit transaction
+            $pdo->commit();
+
+            // If a default password was used, send a welcome email (after commit)
+            if ($forcePasswordChange) {
+                $defaultPassword = $data['password']; // The password that was just set
+                sendAccountCreationEmail($pdo, $data['email'], $data['full_name'], $defaultPassword);
+            }
+
+            return ['id' => $userId];
+        } catch (Exception $e) {
+            // Rollback transaction on error
+            $pdo->rollBack();
+            throw $e;
         }
-
-        return ['id' => $pdo->lastInsertId()];
     } catch (PDOException $e) {
         error_log("Error creating staff account: " . $e->getMessage());
         throw new Exception("Failed to create user account");
@@ -260,6 +299,22 @@ function updateStaffAccount($pdo, $userId, $data) {
 
         if (!$currentUser) {
             throw new Exception("User not found");
+        }
+
+        // Validate campus and office for office approvers
+        if (isset($data['is_approver']) && $data['is_approver']) {
+            $userRole = $data['role'] ?? $currentUser['role'];
+            if (strtolower($userRole) === 'office') {
+                $campusId = $data['campus_id'] ?? $currentUser['campus_id'];
+                $officeId = $data['office_id'] ?? $currentUser['office_id'];
+
+                if (empty($campusId)) {
+                    throw new Exception("Campus is required for office approvers");
+                }
+                if (empty($officeId)) {
+                    throw new Exception("Office is required for office approvers");
+                }
+            }
         }
 
         // Build update query
@@ -308,6 +363,11 @@ function updateStaffAccount($pdo, $userId, $data) {
             $params[] = $data['campus_id'];
         }
 
+        if (isset($data['office_id'])) {
+            $updateFields[] = "office_id = ?";
+            $params[] = $data['office_id'];
+        }
+
         if (isset($data['is_active'])) {
             $updateFields[] = "is_active = ?";
             $params[] = $data['is_active'];
@@ -325,6 +385,46 @@ function updateStaffAccount($pdo, $userId, $data) {
         $params[] = $userId;
         $stmt = $pdo->prepare("UPDATE users SET " . implode(', ', $updateFields) . " WHERE id = ?");
         $stmt->execute($params);
+
+        // Handle approver assignment (only for office role)
+        $officeId = $data['office_id'] ?? $currentUser['office_id'];
+        $campusId = $data['campus_id'] ?? $currentUser['campus_id'];
+        $userRole = $data['role'] ?? $currentUser['role'];
+
+        if (isset($data['is_approver'])) {
+            if ($data['is_approver'] && !empty($officeId) && !empty($campusId) && strtolower($userRole) === 'office') {
+                // Check if user is already an approver for this office
+                $stmt = $pdo->prepare("SELECT id FROM department_approvers WHERE approver_user_id = ? AND office_id = ?");
+                $stmt->execute([$userId, $officeId]);
+                $existingApprover = $stmt->fetch();
+
+                $approvalLevel = $data['approval_level'] ?? 'primary';
+
+                if ($existingApprover) {
+                    // Update existing approver record
+                    $stmt = $pdo->prepare("
+                        UPDATE department_approvers
+                        SET approval_level = ?, is_active = 1
+                        WHERE approver_user_id = ? AND office_id = ?
+                    ");
+                    $stmt->execute([$approvalLevel, $userId, $officeId]);
+                    error_log("Updated department approver for user $userId at office {$officeId} with level {$approvalLevel}");
+                } else {
+                    // Insert new approver record
+                    $stmt = $pdo->prepare("
+                        INSERT INTO department_approvers (office_id, approver_user_id, approval_level, campus_id, assigned_date, is_active)
+                        VALUES (?, ?, ?, ?, CURRENT_DATE, 1)
+                    ");
+                    $stmt->execute([$officeId, $userId, $approvalLevel, $campusId]);
+                    error_log("Created department approver for user $userId at office {$officeId} with level {$approvalLevel}");
+                }
+            } else {
+                // Remove approver status if checkbox is unchecked or role is not office
+                $stmt = $pdo->prepare("DELETE FROM department_approvers WHERE approver_user_id = ? AND office_id = ?");
+                $stmt->execute([$userId, $officeId]);
+                error_log("Removed department approver status for user $userId at office {$officeId}");
+            }
+        }
 
         return ['success' => true];
     } catch (PDOException $e) {
@@ -432,7 +532,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     'full_name' => $_POST['full_name'] ?? ($_POST['fullName'] ?? ''),
                     'email' => $_POST['email'] ?? '',
                     'role' => isset($_POST['role']) ? strtolower($_POST['role']) : '',
-                    'campus_id' => $_POST['campus_id'] ?? ($_POST['campusId'] ?? null)
+                    'campus_id' => $_POST['campus_id'] ?? ($_POST['campusId'] ?? null),
+                    'office_id' => !empty($_POST['office_id']) ? $_POST['office_id'] : null,
+                    'is_approver' => isset($_POST['is_approver']) && ($_POST['is_approver'] === 'on' || $_POST['is_approver'] == 1),
+                    'approval_level' => $_POST['approval_level'] ?? 'primary'
                 ];
 
                 error_log("Processed data: " . print_r($data, true));
@@ -457,8 +560,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 if (!empty($_POST['email'])) $data['email'] = $_POST['email'];
                 if (!empty($_POST['role'])) $data['role'] = strtolower($_POST['role']);
                 if (isset($_POST['campus_id']) || isset($_POST['campusId'])) $data['campus_id'] = $_POST['campus_id'] ?? $_POST['campusId'];
+                if (isset($_POST['office_id'])) $data['office_id'] = !empty($_POST['office_id']) ? $_POST['office_id'] : null;
                 if (isset($_POST['is_active'])) $data['is_active'] = $_POST['is_active'];
                 if (!empty($_POST['password'])) $data['password'] = $_POST['password'];
+                if (isset($_POST['is_approver'])) $data['is_approver'] = ($_POST['is_approver'] === 'on' || $_POST['is_approver'] == 1);
+                if (isset($_POST['approval_level'])) $data['approval_level'] = $_POST['approval_level'];
 
                 updateStaffAccount($pdo, $userId, $data);
                 echo json_encode([

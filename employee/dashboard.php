@@ -214,13 +214,13 @@ $csrfToken = generateCSRFToken();
             </div>
             <nav class="flex-1 px-4 py-4 space-y-2 sidebar-scroll overflow-y-auto">
                 <a href="#" onclick="showTab('my-assets')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700 tab-active">
-                    <i class="fas fa-user-tag w-6"></i><span>My Assets</span>
+                    <i class="fas fa-clipboard-list w-6"></i><span>My Requests</span>
                 </a>
                 <a href="#" onclick="showTab('available-assets')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-boxes w-6"></i><span>Available Assets</span>
                 </a>
                 <a href="my_requests.php" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-paper-plane w-6"></i><span>My Requests</span>
+                    <i class="fas fa-paper-plane w-6"></i><span>Full Request Details</span>
                 </a>
             </nav>
         </div>
@@ -232,7 +232,7 @@ $csrfToken = generateCSRFToken();
                 <h1 class="text-xl font-semibold text-gray-800">Welcome, <?= htmlspecialchars($user['full_name']) ?></h1>
                 <div class="flex items-center space-x-4">
                     <!-- Request Asset Button -->
-                    <a href="request_asset.php" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                    <a href="request_asset_new.php" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
                         <i class="fas fa-plus-circle mr-2"></i>Request Asset
                     </a>
 
@@ -284,15 +284,15 @@ $csrfToken = generateCSRFToken();
 
                 <!-- Quick Stats Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
-                    <!-- Total Assets -->
+                    <!-- Total Requests -->
                     <div class="bg-white rounded-lg shadow-sm p-4 border-l-4 border-blue-500">
                         <div class="flex items-center justify-between">
                             <div>
-                                <p class="text-xs text-gray-600 uppercase mb-1">My Assets</p>
+                                <p class="text-xs text-gray-600 uppercase mb-1">Total Requests</p>
                                 <p id="stat-total-assets" class="text-2xl font-bold text-gray-900">0</p>
                             </div>
                             <div class="bg-blue-100 rounded-full p-3">
-                                <i class="fas fa-box text-blue-600"></i>
+                                <i class="fas fa-clipboard-list text-blue-600"></i>
                             </div>
                         </div>
                     </div>
@@ -354,23 +354,25 @@ $csrfToken = generateCSRFToken();
                 <!-- My Assets Tab -->
                 <div id="my-assets-tab" class="tab-content">
                     <div class="bg-white p-6 rounded-lg shadow-md">
-                        <h2 class="text-2xl font-semibold text-gray-800 mb-4">My Assigned Assets</h2>
+                        <h2 class="text-2xl font-semibold text-gray-800 mb-4">My Requested Assets</h2>
                         <div class="overflow-x-auto">
                             <table class="min-w-full bg-white">
                                 <thead class="bg-gray-200 text-gray-600 uppercase text-sm leading-normal">
                                     <tr>
                                         <th class="py-3 px-6 text-left">Asset Name</th>
                                         <th class="py-3 px-6 text-left">Category</th>
-                                        <th class="py-3 px-6 text-center">Assigned Qty</th>
-                                        <th class="py-3 px-6 text-center">Date Assigned</th>
-                                        <th class="py-3 px-6 text-center">Actions</th>
+                                        <th class="py-3 px-6 text-center">Quantity</th>
+                                        <th class="py-3 px-6 text-center">Request Date</th>
+                                        <th class="py-3 px-6 text-center">Expected Return</th>
+                                        <th class="py-3 px-6 text-center">Status</th>
+                                        <th class="py-3 px-6 text-left">Purpose</th>
                                     </tr>
                                 </thead>
                                 <tbody id="my-assets-tbody" class="text-gray-600 text-sm font-light">
                                     <!-- Data will be loaded here -->
                                 </tbody>
                             </table>
-                            <div id="my-assets-loading" class="text-center py-4">Loading my assets...</div>
+                            <div id="my-assets-loading" class="text-center py-4">Loading my requested assets...</div>
                         </div>
                     </div>
                 </div>
@@ -386,7 +388,7 @@ $csrfToken = generateCSRFToken();
                                         <th class="py-3 px-6 text-left">Asset Name</th>
                                         <th class="py-3 px-6 text-left">Category</th>
                                         <th class="py-3 px-6 text-center">Available Qty</th>
-                                        <th class="py-3 px-6 text-left">Location</th>
+                                        <th class="py-3 px-6 text-left">Campus</th>
                                         <th class="py-3 px-6 text-center">Actions</th>
                                     </tr>
                                 </thead>
@@ -474,7 +476,7 @@ document.addEventListener('DOMContentLoaded', function() {
         loading.style.display = 'block';
         tbody.innerHTML = '';
 
-        const res = await apiRequest('dashboard.php', 'get_my_assets');
+        const res = await apiRequest('dashboard.php', 'get_asset_requests');
         loading.style.display = 'none';
 
         if (res.success && res.data) {
@@ -482,20 +484,29 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('stat-total-assets').textContent = res.data.length;
 
             if (res.data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center py-4">You have no assets assigned to you.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4">You have no asset requests.</td></tr>';
                 return;
             }
-            res.data.forEach(asset => {
+            res.data.forEach(request => {
+                const statusClass = getStatusClass(request.status);
+                const requestDate = new Date(request.request_date).toLocaleDateString();
+                const returnDate = request.expected_return_date ? new Date(request.expected_return_date).toLocaleDateString() : 'N/A';
+                const purpose = request.purpose || 'N/A';
+
                 const row = `
                     <tr class="border-b border-gray-200 hover:bg-gray-100">
-                        <td class="py-3 px-6 text-left">${asset.asset_name}</td>
-                        <td class="py-3 px-6 text-left">${asset.category_name}</td>
-                        <td class="py-3 px-6 text-center">${asset.assigned_quantity}</td>
-                        <td class="py-3 px-6 text-center">${new Date(asset.assignment_date).toLocaleDateString()}</td>
+                        <td class="py-3 px-6 text-left">${request.asset_name}</td>
+                        <td class="py-3 px-6 text-left">${request.category_name}</td>
+                        <td class="py-3 px-6 text-center">${request.quantity}</td>
+                        <td class="py-3 px-6 text-center">${requestDate}</td>
+                        <td class="py-3 px-6 text-center">${returnDate}</td>
                         <td class="py-3 px-6 text-center">
-                            <button onclick="openReturnModal(${asset.id}, ${asset.assigned_quantity})" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold py-1 px-3 rounded">
-                                Return
-                            </button>
+                            <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full ${statusClass}">
+                                ${request.status}
+                            </span>
+                        </td>
+                        <td class="py-3 px-6 text-left">
+                            <span class="text-xs" title="${purpose}">${purpose.length > 30 ? purpose.substring(0, 30) + '...' : purpose}</span>
                         </td>
                     </tr>`;
                 tbody.innerHTML += row;
@@ -509,7 +520,7 @@ document.addEventListener('DOMContentLoaded', function() {
         loading.style.display = 'block';
         tbody.innerHTML = '';
 
-        const res = await apiRequest('dashboard.php', 'get_borrowable_assets');
+        const res = await apiRequest('dashboard.php', 'get_available_assets');
         loading.style.display = 'none';
 
         if (res.success && res.data) {
@@ -525,10 +536,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     <tr class="border-b border-gray-200 hover:bg-gray-100">
                         <td class="py-3 px-6 text-left">${asset.asset_name}</td>
                         <td class="py-3 px-6 text-left">${asset.category_name}</td>
-                        <td class="py-3 px-6 text-center">${asset.borrowable_quantity}</td>
-                        <td class="py-3 px-6 text-left">${asset.office_name}</td>
+                        <td class="py-3 px-6 text-center">${asset.quantity || 0}</td>
+                        <td class="py-3 px-6 text-left">${asset.campus_name}</td>
                         <td class="py-3 px-6 text-center">
-                            <button onclick="requestSpecificAsset(${asset.tag_id})" class="bg-green-500 hover:bg-green-600 text-white text-xs font-bold py-1 px-3 rounded">
+                            <button onclick="requestSpecificAsset(${asset.id})" class="bg-green-500 hover:bg-green-600 text-white text-xs font-bold py-1 px-3 rounded">
                                 Request
                             </button>
                         </td>
@@ -679,8 +690,13 @@ document.addEventListener('DOMContentLoaded', function() {
             case 'released':
             case 'active': return 'text-green-600 bg-green-200';
             case 'pending': return 'text-yellow-800 bg-yellow-200';
+            case 'custodian_review':
+            case 'office_review':
+            case 'department_review': return 'text-blue-600 bg-blue-200';
             case 'rejected':
+            case 'cancelled':
             case 'declined': return 'text-red-600 bg-red-200';
+            case 'returned': return 'text-purple-600 bg-purple-200';
             default: return 'text-gray-600 bg-gray-200';
         }
     }

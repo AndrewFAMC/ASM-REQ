@@ -170,14 +170,14 @@ $stats['pending'] = $stats['in_progress'];
                 <span class="text-white text-lg font-bold">Employee Panel</span>
             </div>
             <nav class="flex-1 px-4 py-4 space-y-2 sidebar-scroll overflow-y-auto">
-                <a href="dashboard.php" onclick="" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700 tab-active">
-                    <i class="fas fa-user-tag w-6"></i><span>My Assets</span>
+                <a href="dashboard.php" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-clipboard-list w-6"></i><span>My Requests</span>
                 </a>
-                <a href="dashboard.php" onclick="showTab('available-assets')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                <a href="dashboard.php" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-boxes w-6"></i><span>Available Assets</span>
                 </a>
-                <a href="my_requests.php" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-paper-plane w-6"></i><span>My Requests</span>
+                <a href="my_requests.php" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700 tab-active">
+                    <i class="fas fa-paper-plane w-6"></i><span>Full Request Details</span>
                 </a>
             </nav>
         </div>

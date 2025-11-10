@@ -114,6 +114,9 @@ $campusId = $user['campus_id'];
                 <a href="users.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-users w-6"></i><span>User Management</span>
                 </a>
+                <a href="offices.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-building w-6"></i><span>Office Management</span>
+                </a>
                 <a href="reports.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 bg-gray-700">
                     <i class="fas fa-chart-bar w-6"></i><span>Reports</span>
                 </a>

@@ -148,7 +148,7 @@ function getAvailableAssets($pdo, $campusId = null, $filters = []) {
             FROM assets a
             JOIN categories c ON a.category_id = c.id
             JOIN campuses cam ON a.campus_id = cam.id
-            WHERE a.status = 'Active' AND a.quantity > 0";
+            WHERE (a.status = 'Available' OR a.status = 'Active') AND a.quantity > 0";
 
     $params = [];
     $conditions = [];

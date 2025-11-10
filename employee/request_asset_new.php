@@ -109,13 +109,13 @@ $csrfToken = generateCSRFToken();
             </div>
             <nav class="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
                 <a href="dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-home w-6"></i><span>Dashboard</span>
+                    <i class="fas fa-clipboard-list w-6"></i><span>My Requests</span>
                 </a>
-                <a href="request_asset_new.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 bg-gray-700">
-                    <i class="fas fa-plus-circle w-6"></i><span>Request Asset</span>
+                <a href="dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-boxes w-6"></i><span>Available Assets</span>
                 </a>
                 <a href="my_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-paper-plane w-6"></i><span>My Requests</span>
+                    <i class="fas fa-paper-plane w-6"></i><span>Full Request Details</span>
                 </a>
             </nav>
         </div>

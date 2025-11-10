@@ -25,13 +25,112 @@ class AdminDashboard {
 
     async loadCampuses() {
         try {
-            const response = await this.makeRequest('get_campuses');
-            if (response.success) {
-                this.campuses = response.data;
+            // Use absolute path from site root to call offices API
+            const url = '/AMS-REQ/api/offices.php?action=get_campuses';
+            console.log('Loading campuses from:', url);
+
+            const response = await fetch(url);
+            console.log('Campuses response status:', response.status);
+
+            const result = await response.json();
+            console.log('Campuses API response:', result);
+
+            if (result.success) {
+                this.campuses = result.data;
+                console.log('Loaded campuses:', this.campuses.length, this.campuses);
+            } else {
+                console.error('Failed to load campuses:', result.message);
             }
         } catch (error) {
             console.error('Failed to load campuses:', error);
         }
+    }
+
+    async loadOffices() {
+        try {
+            // Use absolute path from site root
+            const url = '/AMS-REQ/api/offices.php?action=list';
+            console.log('Loading offices from:', url);
+
+            const response = await fetch(url);
+            console.log('Response status:', response.status);
+
+            const result = await response.json();
+            console.log('Offices API response:', result);
+
+            if (result.success) {
+                this.offices = result.data;
+                console.log('Loaded offices:', this.offices.length, this.offices);
+                this.populateOfficeDropdown();
+            } else {
+                console.error('Failed to load offices:', result.message);
+            }
+        } catch (error) {
+            console.error('Failed to load offices - Error:', error);
+        }
+    }
+
+    populateOfficeDropdown(selectedCampusId = null) {
+        const officeSelect = document.getElementById('officeId');
+        const campusSelect = document.getElementById('campusId');
+
+        if (!officeSelect) {
+            console.error('Office dropdown element not found');
+            return;
+        }
+
+        // Get selected campus ID from dropdown if not provided
+        if (!selectedCampusId && campusSelect) {
+            selectedCampusId = campusSelect.value;
+        }
+
+        // Clear existing options
+        officeSelect.innerHTML = '<option value="">No Office / Not Assigned</option>';
+
+        // Check if offices is defined and has items
+        if (!this.offices || !Array.isArray(this.offices) || this.offices.length === 0) {
+            console.warn('No offices available to populate dropdown');
+            return;
+        }
+
+        // Filter offices by selected campus if campus is selected
+        let filteredOffices = this.offices;
+        if (selectedCampusId) {
+            filteredOffices = this.offices.filter(office => office.campus_id == selectedCampusId);
+            console.log('Filtering offices for campus ID:', selectedCampusId, '- Found:', filteredOffices.length);
+        }
+
+        if (filteredOffices.length === 0) {
+            console.warn('No offices found for selected campus');
+            return;
+        }
+
+        console.log('Populating dropdown with', filteredOffices.length, 'offices');
+
+        // Add offices grouped by campus
+        const officesByCampus = {};
+        filteredOffices.forEach(office => {
+            const campusName = office.campus_name || 'Unknown Campus';
+            if (!officesByCampus[campusName]) {
+                officesByCampus[campusName] = [];
+            }
+            officesByCampus[campusName].push(office);
+        });
+
+        // Add optgroups for each campus
+        Object.keys(officesByCampus).sort().forEach(campusName => {
+            const optgroup = document.createElement('optgroup');
+            optgroup.label = campusName;
+            officesByCampus[campusName].forEach(office => {
+                const option = document.createElement('option');
+                option.value = office.id;
+                option.textContent = office.office_name;
+                optgroup.appendChild(option);
+            });
+            officeSelect.appendChild(optgroup);
+        });
+
+        console.log('Office dropdown populated successfully');
     }
 
     // User Management Methods
@@ -57,21 +156,33 @@ class AdminDashboard {
         const loading = document.getElementById('loadingIndicator');
         const noUsers = document.getElementById('noUsersMessage');
 
-        if (!tbody) return;
+        console.log('displayUsers called with', users.length, 'users');
+        console.log('Users data:', users);
+
+        if (!tbody) {
+            console.error('usersTableBody element not found');
+            return;
+        }
 
         loading.classList.add('hidden');
         tbody.innerHTML = '';
 
         if (users.length === 0) {
+            console.log('No users to display');
             noUsers.classList.remove('hidden');
             return;
         }
 
         noUsers.classList.add('hidden');
 
-        users.forEach(user => {
-            const row = document.createElement('tr');
-            row.innerHTML = `
+        let successCount = 0;
+        let errorCount = 0;
+
+        users.forEach((user, index) => {
+            try {
+                console.log(`Processing user ${index + 1}/${users.length}:`, user.username);
+                const row = document.createElement('tr');
+                row.innerHTML = `
                 <td class="px-6 py-4 whitespace-nowrap">
                     <div class="flex items-center">
                         <div class="flex-shrink-0 h-10 w-10">
@@ -91,6 +202,12 @@ class AdminDashboard {
                     </span>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">${user.campus_name || 'N/A'}</td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${user.office_name ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800"><i class="fas fa-building mr-1"></i>${user.office_name}</span>` : '<span class="text-gray-400">-</span>'}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    ${user.approver_id ? `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800"><i class="fas fa-user-check mr-1"></i>${this.getApprovalLevelLabel(user.approval_level)}</span>` : '<span class="text-gray-400">-</span>'}
+                </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                     <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${user.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}">
                         ${user.is_active ? 'Active' : 'Inactive'}
@@ -104,20 +221,57 @@ class AdminDashboard {
                     <button class="text-red-600 hover:text-red-900 delete-user" data-user-id="${user.id}">Delete</button>
                 </td>
             `;
-            tbody.appendChild(row);
+                tbody.appendChild(row);
+                successCount++;
+                console.log(`Successfully added user ${user.username} to table`);
+            } catch (error) {
+                errorCount++;
+                console.error(`Error displaying user ${user.username}:`, error);
+                console.error('User data:', user);
+            }
         });
 
+        console.log(`Display complete: ${successCount} success, ${errorCount} errors`);
         this.bindUserActionEvents();
     }
 
     getRoleBadgeClass(role) {
         const classes = {
             admin: 'bg-purple-100 text-purple-800',
-            staff: 'bg-blue-100 text-blue-800',
+            office: 'bg-blue-100 text-blue-800',
+            employee: 'bg-indigo-100 text-indigo-800',
             custodian: 'bg-green-100 text-green-800',
+            // Legacy roles (for backward compatibility)
+            staff: 'bg-indigo-100 text-indigo-800',
             user: 'bg-gray-100 text-gray-800'
         };
         return classes[role] || classes.user;
+    }
+
+    getApprovalLevelLabel(level) {
+        const labels = {
+            primary: 'Primary',
+            secondary: 'Secondary',
+            backup: 'Backup'
+        };
+        return labels[level] || level;
+    }
+
+    toggleApproverFieldsVisibility(role) {
+        const approverContainer = document.getElementById('isApprover')?.parentElement;
+        const approvalLevelField = document.getElementById('approvalLevelField');
+
+        if (role === 'office') {
+            // Show approver fields for office role
+            if (approverContainer) approverContainer.style.display = 'block';
+        } else {
+            // Hide approver fields for other roles
+            if (approverContainer) approverContainer.style.display = 'none';
+            if (approvalLevelField) approvalLevelField.style.display = 'none';
+            // Uncheck the checkbox when hiding
+            const isApproverCheckbox = document.getElementById('isApprover');
+            if (isApproverCheckbox) isApproverCheckbox.checked = false;
+        }
     }
 
     async createUser(data) {
@@ -191,8 +345,18 @@ class AdminDashboard {
                 document.getElementById('email').value = user.email || '';
                 document.getElementById('role').value = user.role;
                 document.getElementById('campusId').value = user.campus_id || '';
+                document.getElementById('officeId').value = user.office_id || '';
                 document.getElementById('isActive').checked = user.is_active == 1;
                 document.getElementById('activeField').style.display = 'block';
+
+                // Show/hide approver fields based on role
+                this.toggleApproverFieldsVisibility(user.role);
+
+                // Set approver status
+                const isApprover = user.approver_id ? true : false;
+                document.getElementById('isApprover').checked = isApprover;
+                document.getElementById('approvalLevel').value = user.approval_level || 'primary';
+                document.getElementById('approvalLevelField').style.display = isApprover ? 'block' : 'none';
             } else {
                 showErrorAlert('Error', response.message || 'Failed to load user data');
             }
@@ -202,7 +366,7 @@ class AdminDashboard {
         }
     }
 
-    openUserModal(userId = null) {
+    async openUserModal(userId = null) {
         const modal = document.getElementById('userModal');
         const form = document.getElementById('userForm');
         const title = document.getElementById('modalTitle');
@@ -211,15 +375,23 @@ class AdminDashboard {
 
         form.reset();
         activeField.style.display = 'none';
+        document.getElementById('approvalLevelField').style.display = 'none';
+
+        // Load offices for the dropdown (wait for it to complete)
+        await this.loadOffices();
 
         if (userId) {
             title.textContent = 'Edit User';
             // Hide default password info when editing
             if (defaultPasswordInfo) defaultPasswordInfo.style.display = 'none';
-            this.loadUserData(userId);
+            await this.loadUserData(userId);
         } else {
             title.textContent = 'Add User';
             document.getElementById('userId').value = '';
+            document.getElementById('isApprover').checked = false;
+            document.getElementById('approvalLevel').value = 'primary';
+            // Hide approver fields by default (will show when office role is selected)
+            this.toggleApproverFieldsVisibility('');
             // Show default password info when adding new user
             if (defaultPasswordInfo) defaultPasswordInfo.style.display = 'block';
         }
@@ -235,16 +407,30 @@ class AdminDashboard {
         const form = document.getElementById('userForm');
         const formData = new FormData(form);
         const data = Object.fromEntries(formData.entries());
-        
-        // Handle checkbox
+
+        // Handle checkboxes (unchecked checkboxes don't appear in FormData)
         data.is_active = data.is_active === 'on' ? 1 : 0;
-        
+        data.is_approver = document.getElementById('isApprover').checked ? 1 : 0;
+
+        // Validate campus and office selection for approvers
+        if (data.is_approver && data.role === 'office') {
+            if (!data.campus_id || data.campus_id === '') {
+                showErrorAlert('Validation Error', 'Campus must be selected for office approvers');
+                return;
+            }
+            if (!data.office_id || data.office_id === '') {
+                showErrorAlert('Validation Error', 'Office must be selected for office approvers');
+                return;
+            }
+        }
+
         // Get userId
         const userId = data.user_id;
-        
+
         // Log the data being sent
         console.log('Form data being sent:', data);
         console.log('User ID:', userId);
+        console.log('Is Approver:', data.is_approver);
 
         if (userId) {
             this.updateUser(userId, data);
@@ -319,6 +505,35 @@ class AdminDashboard {
                 this.saveUser();
             });
             userForm.dataset.bound = 'true';
+        }
+
+        // Campus change event - update offices dropdown
+        const campusSelect = document.getElementById('campusId');
+        if (campusSelect && !campusSelect.dataset.boundOfficeFilter) {
+            campusSelect.addEventListener('change', () => {
+                console.log('Campus changed, reloading offices for campus:', campusSelect.value);
+                this.populateOfficeDropdown();
+            });
+            campusSelect.dataset.boundOfficeFilter = 'true';
+        }
+
+        // Role change event - show/hide approver section
+        const roleSelect = document.getElementById('role');
+        if (roleSelect && !roleSelect.dataset.boundApproverVisibility) {
+            roleSelect.addEventListener('change', (e) => {
+                this.toggleApproverFieldsVisibility(e.target.value);
+            });
+            roleSelect.dataset.boundApproverVisibility = 'true';
+        }
+
+        // Approver checkbox
+        const isApproverCheckbox = document.getElementById('isApprover');
+        if (isApproverCheckbox && !isApproverCheckbox.dataset.boundApprover) {
+            isApproverCheckbox.addEventListener('change', (e) => {
+                const approvalLevelField = document.getElementById('approvalLevelField');
+                approvalLevelField.style.display = e.target.checked ? 'block' : 'none';
+            });
+            isApproverCheckbox.dataset.boundApprover = 'true';
         }
 
         // Filters

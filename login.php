@@ -8,13 +8,13 @@ require_once 'config.php';
 if (isLoggedIn() && validateSession($pdo)) {
     $role = strtolower($_SESSION['role'] ?? '');
     if ($role === 'admin') {
-        header('Location: dashboard.php');
+        header('Location: admin/admin_dashboard.php');
     } elseif ($role === 'employee') {
-        header('Location: employee_dashboard.php');
+        header('Location: employee/dashboard.php');
     } elseif ($role === 'custodian') {
-        header('Location: custodian_dashboard.php');
+        header('Location: custodian/dashboard.php');
     } elseif ($role === 'office') {
-        header('Location: office_dashboard.php');
+        header('Location: office/office_dashboard.php');
     } else {
         header('Location: dashboard.php');
     }
@@ -53,13 +53,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Determine redirect URL based on role
                 $role = strtolower($_SESSION['role'] ?? '');
                 if ($role === 'admin') {
-                    $redirectUrl = 'dashboard.php';
+                    $redirectUrl = 'admin/admin_dashboard.php';
                 } elseif ($role === 'employee') {
-                    $redirectUrl = 'employee_dashboard.php';
+                    $redirectUrl = 'employee/dashboard.php';
                 } elseif ($role === 'custodian') {
-                    $redirectUrl = 'custodian_dashboard.php';
+                    $redirectUrl = 'custodian/dashboard.php';
                 } elseif ($role === 'office') {
-                    $redirectUrl = 'office_dashboard.php';
+                    $redirectUrl = 'office/office_dashboard.php';
                 } else {
                     $redirectUrl = 'dashboard.php';
                 }

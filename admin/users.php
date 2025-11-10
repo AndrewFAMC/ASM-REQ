@@ -51,6 +51,9 @@ $campuses = $stmt->fetchAll();
                 <a href="users.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 bg-gray-700">
                     <i class="fas fa-users w-6"></i><span>User Management</span>
                 </a>
+                <a href="offices.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-building w-6"></i><span>Office Management</span>
+                </a>
                 <a href="reports.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-chart-bar w-6"></i><span>Reports</span>
                 </a>
@@ -136,6 +139,8 @@ $campuses = $stmt->fetchAll();
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">User</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Role</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Campus</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Office</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Approver</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assets</th>
                                     <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
@@ -274,19 +279,16 @@ $campuses = $stmt->fetchAll();
                         <div id="defaultPasswordInfo" class="bg-blue-50 border border-blue-200 rounded-md p-3">
                             <p class="text-sm text-blue-800">
                                 <i class="fas fa-info-circle mr-1"></i>
-                                Default passwords will be assigned:
+                                Default password will be assigned: <strong>hccams1</strong>
                             </p>
-                            <ul class="text-xs text-blue-700 mt-2 ml-4 list-disc">
-                                <li><strong>Staff:</strong> staff1234</li>
-                                <li><strong>Custodian:</strong> custodian1234</li>
-                            </ul>
                             <p class="text-xs text-blue-600 mt-2">Users will be required to change their password on first login.</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700">Role</label>
                             <select id="role" name="role" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                                <option value="user">User</option>
-                                <option value="staff">Staff</option>
+                                <option value="">Select Role</option>
+                                <option value="office">Office</option>
+                                <option value="employee">Employee</option>
                                 <option value="custodian">Custodian</option>
                                 <option value="admin">Admin</option>
                             </select>
@@ -298,6 +300,28 @@ $campuses = $stmt->fetchAll();
                                 <?php foreach ($campuses as $campus): ?>
                                     <option value="<?= $campus['id'] ?>"><?= htmlspecialchars($campus['campus_name']) ?></option>
                                 <?php endforeach; ?>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">Office</label>
+                            <select id="officeId" name="office_id" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">No Office / Not Assigned</option>
+                            </select>
+                            <p class="mt-1 text-xs text-gray-500">Optional: Assign user to a specific office</p>
+                        </div>
+                        <div>
+                            <label class="flex items-center">
+                                <input type="checkbox" id="isApprover" name="is_approver" class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50">
+                                <span class="ml-2 text-sm text-gray-700">Make Office Approver</span>
+                            </label>
+                            <p class="mt-1 text-xs text-gray-500">User will be able to approve asset requests for their office</p>
+                        </div>
+                        <div id="approvalLevelField" style="display: none;">
+                            <label class="block text-sm font-medium text-gray-700">Approval Level</label>
+                            <select id="approvalLevel" name="approval_level" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
+                                <option value="primary">Primary Approver</option>
+                                <option value="secondary">Secondary Approver</option>
+                                <option value="backup">Backup Approver</option>
                             </select>
                         </div>
                         <div id="activeField">

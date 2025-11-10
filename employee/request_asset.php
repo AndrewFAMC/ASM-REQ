@@ -193,14 +193,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['submit_request'])) {
                 <span class="text-white text-lg font-bold">Employee Panel</span>
             </div>
             <nav class="flex-1 px-4 py-4 space-y-2 sidebar-scroll overflow-y-auto">
-                <a href="#" onclick="showTab('my-assets')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700 tab-active">
-                    <i class="fas fa-user-tag w-6"></i><span>My Assets</span>
+                <a href="dashboard.php" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-clipboard-list w-6"></i><span>My Requests</span>
                 </a>
-                <a href="#" onclick="showTab('available-assets')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                <a href="dashboard.php" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-boxes w-6"></i><span>Available Assets</span>
                 </a>
                 <a href="my_requests.php" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-paper-plane w-6"></i><span>My Requests</span>
+                    <i class="fas fa-paper-plane w-6"></i><span>Full Request Details</span>
                 </a>
             </nav>
         </div>

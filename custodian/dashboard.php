@@ -231,8 +231,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ]);
                 $tagId = $pdo->lastInsertId();
 
-                // 2. Decrease asset quantity
-                executeQuery($pdo, "UPDATE assets SET quantity = quantity - ? WHERE id = ?", [$quantity, $assetId]);
+                // 2. Decrease asset quantity and assign to office
+                executeQuery($pdo, "UPDATE assets SET quantity = quantity - ?, assigned_to = ? WHERE id = ?", [$quantity, $officeId, $assetId]);
 
                 // 3. Update asset status to 'In Use' if quantity becomes 0 (all units assigned)
                 $newQuantity = $currentAsset['quantity'] - $quantity;
@@ -265,8 +265,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 executeQuery($pdo, $sql, [$assetId, $officeId, $tagNumber, $custodianUserId]);
                 $tagId = $pdo->lastInsertId();
 
-                // 2. Update asset status to In Use (assigned to office)
-                executeQuery($pdo, "UPDATE assets SET status = 'In Use' WHERE id = ?", [$assetId]);
+                // 2. Update asset status to In Use and assign to office
+                executeQuery($pdo, "UPDATE assets SET status = 'In Use', assigned_to = ? WHERE id = ?", [$officeId, $assetId]);
 
                 // 3. Log the activity
                 logActivity($pdo, $assetId, 'ASSIGNED_TO_OFFICE', "Asset assigned to office ID #{$officeId} with tag #{$tagNumber} by custodian.");
@@ -285,9 +285,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $pdo->beginTransaction();
                 $assetId = $_POST['asset_id'];
                 $quantityToTag = (int)($_POST['quantity'] ?? 1);
-                
-                // Decrease asset quantity
-                executeQuery($pdo, "UPDATE assets SET quantity = quantity - ? WHERE id = ?", [$quantityToTag, $assetId]);
+                $officeId = $_POST['office_id'];
+
+                // Decrease asset quantity and assign to office
+                executeQuery($pdo, "UPDATE assets SET quantity = quantity - ?, assigned_to = ? WHERE id = ?", [$quantityToTag, $officeId, $assetId]);
 
                 // Insert new inventory tags in a loop
                 $baseTagNumber = $_POST['tag_number'];
@@ -295,7 +296,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                     $uniqueTagNumber = ($quantityToTag > 1) ? $baseTagNumber . '-' . str_pad($i, 2, '0', STR_PAD_LEFT) : $baseTagNumber;
                     $sql = "INSERT INTO inventory_tags (asset_id, office_id, tag_number, inventory_date, article, size, counted_by, checked_by, location_row, location_section, location_floor, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'Pending Verification')";
                     $params = [
-                        $assetId, $_POST['office_id'], $uniqueTagNumber, $_POST['inventory_date'], $_POST['article'], $_POST['size'], $_POST['counted_by'], $_POST['checked_by'], $_POST['location_row'], $_POST['location_section'], $_POST['location_floor']
+                        $assetId, $officeId, $uniqueTagNumber, $_POST['inventory_date'], $_POST['article'], $_POST['size'], $_POST['counted_by'], $_POST['checked_by'], $_POST['location_row'], $_POST['location_section'], $_POST['location_floor']
                     ];
                     executeQuery($pdo, $sql, $params);
                 }
