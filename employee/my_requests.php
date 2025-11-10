@@ -288,28 +288,46 @@ $stats['pending'] = $stats['in_progress'];
                 <div class="space-y-6">
                     <?php foreach ($requests as $request): ?>
                         <?php
-                        // Determine progress
+                        // Determine progress based on request source
                         $progress = 0;
                         $currentStep = 'submitted';
                         $isRejected = $request['status'] === 'rejected';
 
                         if ($isRejected) {
                             $currentStep = 'rejected';
-                        } elseif ($request['status'] === 'pending') {
-                            $progress = 25;
-                            $currentStep = 'custodian';
-                        } elseif ($request['status'] === 'custodian_review' || $request['status'] === 'department_review') {
-                            $progress = 50;
-                            $currentStep = 'admin';
-                        } elseif ($request['status'] === 'approved') {
-                            $progress = 75;
-                            $currentStep = 'approved';
-                        } elseif ($request['status'] === 'released') {
-                            $progress = 90;
-                            $currentStep = 'released';
-                        } elseif ($request['status'] === 'returned') {
-                            $progress = 100;
-                            $currentStep = 'returned';
+                        } elseif ($request['request_source'] === 'office') {
+                            // Office Request Flow: Submitted -> Office Review -> Released -> Returned
+                            if ($request['status'] === 'office_review') {
+                                $progress = 33; // Step 2 of 4
+                                $currentStep = 'office_review';
+                            } elseif ($request['status'] === 'office_approved' || $request['status'] === 'approved') {
+                                $progress = 66; // Step 3 of 4 (approved, ready to release)
+                                $currentStep = 'approved';
+                            } elseif ($request['status'] === 'released') {
+                                $progress = 90;
+                                $currentStep = 'released';
+                            } elseif ($request['status'] === 'returned') {
+                                $progress = 100;
+                                $currentStep = 'returned';
+                            }
+                        } else {
+                            // Custodian Request Flow: Submitted -> Custodian Review -> Admin Approval -> Released -> Returned
+                            if ($request['status'] === 'pending') {
+                                $progress = 25;
+                                $currentStep = 'custodian';
+                            } elseif ($request['status'] === 'custodian_review' || $request['status'] === 'department_review') {
+                                $progress = 50;
+                                $currentStep = 'admin';
+                            } elseif ($request['status'] === 'approved') {
+                                $progress = 75;
+                                $currentStep = 'approved';
+                            } elseif ($request['status'] === 'released') {
+                                $progress = 90;
+                                $currentStep = 'released';
+                            } elseif ($request['status'] === 'returned') {
+                                $progress = 100;
+                                $currentStep = 'returned';
+                            }
                         }
 
                         $borderColor = $isRejected ? 'border-red-500' : ($progress === 100 ? 'border-green-500' : ($progress >= 75 ? 'border-purple-500' : 'border-blue-500'));
@@ -431,39 +449,58 @@ $stats['pending'] = $stats['in_progress'];
                                             </div>
                                         </div>
 
-                                        <!-- Step 2: Custodian Review -->
-                                        <div class="progress-step <?= $progress >= 50 ? 'completed' : ($progress >= 25 ? 'current' : '') ?>">
-                                            <div class="progress-step-circle">
-                                                <i class="fas fa-user-check"></i>
+                                        <?php if ($request['request_source'] === 'office'): ?>
+                                            <!-- Office Request Flow: Step 2 - Office Review (Only step before release) -->
+                                            <div class="progress-step <?= $progress >= 66 ? 'completed' : ($progress >= 33 ? 'current' : '') ?>">
+                                                <div class="progress-step-circle">
+                                                    <i class="fas fa-building"></i>
+                                                </div>
+                                                <div class="progress-step-label">
+                                                    <div>Office Review</div>
+                                                    <?php if ($progress >= 66): ?>
+                                                        <div class="text-xs text-gray-500 mt-1">Approved</div>
+                                                    <?php elseif ($progress >= 33): ?>
+                                                        <div class="text-xs text-gray-500 mt-1">Pending</div>
+                                                    <?php else: ?>
+                                                        <div class="text-xs text-gray-500 mt-1">Pending</div>
+                                                    <?php endif; ?>
+                                                </div>
                                             </div>
-                                            <div class="progress-step-label">
-                                                <div>Custodian Review</div>
-                                                <?php if ($progress >= 50): ?>
-                                                    <div class="text-xs text-gray-500 mt-1">Approved</div>
-                                                <?php elseif ($progress >= 25): ?>
-                                                    <div class="text-xs text-gray-500 mt-1">Pending</div>
-                                                <?php else: ?>
-                                                    <div class="text-xs text-gray-500 mt-1">Pending</div>
-                                                <?php endif; ?>
+                                        <?php else: ?>
+                                            <!-- Custodian Request Flow: Step 2 - Custodian Review -->
+                                            <div class="progress-step <?= $progress >= 50 ? 'completed' : ($progress >= 25 ? 'current' : '') ?>">
+                                                <div class="progress-step-circle">
+                                                    <i class="fas fa-user-check"></i>
+                                                </div>
+                                                <div class="progress-step-label">
+                                                    <div>Custodian Review</div>
+                                                    <?php if ($progress >= 50): ?>
+                                                        <div class="text-xs text-gray-500 mt-1">Approved</div>
+                                                    <?php elseif ($progress >= 25): ?>
+                                                        <div class="text-xs text-gray-500 mt-1">Pending</div>
+                                                    <?php else: ?>
+                                                        <div class="text-xs text-gray-500 mt-1">Pending</div>
+                                                    <?php endif; ?>
+                                                </div>
                                             </div>
-                                        </div>
 
-                                        <!-- Step 3: Admin Approval -->
-                                        <div class="progress-step <?= $progress >= 75 ? 'completed' : ($progress >= 50 ? 'current' : '') ?>">
-                                            <div class="progress-step-circle">
-                                                <i class="fas fa-user-shield"></i>
+                                            <!-- Custodian Request Flow: Step 3 - Admin Approval -->
+                                            <div class="progress-step <?= $progress >= 75 ? 'completed' : ($progress >= 50 ? 'current' : '') ?>">
+                                                <div class="progress-step-circle">
+                                                    <i class="fas fa-user-shield"></i>
+                                                </div>
+                                                <div class="progress-step-label">
+                                                    <div>Admin Approval</div>
+                                                    <?php if ($progress >= 75): ?>
+                                                        <div class="text-xs text-gray-500 mt-1">Approved</div>
+                                                    <?php elseif ($progress >= 50): ?>
+                                                        <div class="text-xs text-gray-500 mt-1">In Review</div>
+                                                    <?php else: ?>
+                                                        <div class="text-xs text-gray-500 mt-1">Pending</div>
+                                                    <?php endif; ?>
+                                                </div>
                                             </div>
-                                            <div class="progress-step-label">
-                                                <div>Admin Approval</div>
-                                                <?php if ($progress >= 75): ?>
-                                                    <div class="text-xs text-gray-500 mt-1">Approved</div>
-                                                <?php elseif ($progress >= 50): ?>
-                                                    <div class="text-xs text-gray-500 mt-1">In Review</div>
-                                                <?php else: ?>
-                                                    <div class="text-xs text-gray-500 mt-1">Pending</div>
-                                                <?php endif; ?>
-                                            </div>
-                                        </div>
+                                        <?php endif; ?>
 
                                         <!-- Step 4: Released -->
                                         <div class="progress-step <?= $progress >= 90 ? 'completed' : ($progress >= 75 ? 'current' : '') ?>">

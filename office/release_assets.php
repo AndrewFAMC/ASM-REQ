@@ -1,19 +1,45 @@
 <?php
 /**
- * Release Assets Page
- * Custodian releases approved assets to requesters
+ * Office Release Assets Page
+ * Office heads release approved assets to requesters
  */
 
 require_once dirname(__DIR__) . '/config.php';
 
-// Require custodian access
-if (!isLoggedIn() || !hasRole('custodian')) {
+// Check authentication and role
+if (!isLoggedIn() || !validateSession($pdo)) {
     header('Location: ../login.php');
     exit;
 }
 
 $user = getUserInfo();
+$role = strtolower($user['role'] ?? '');
+
+if ($role !== 'office') {
+    header('HTTP/1.1 403 Forbidden');
+    echo 'Access denied. This page is for Office/Department Head users only.';
+    exit;
+}
+
+// Verify user is actually a department approver
+$deptCheck = $pdo->prepare("
+    SELECT da.*, o.office_name
+    FROM department_approvers da
+    JOIN offices o ON da.office_id = o.id
+    WHERE da.approver_user_id = ? AND da.is_active = TRUE
+");
+$deptCheck->execute([$user['id']]);
+$approverInfo = $deptCheck->fetch();
+
+if (!$approverInfo) {
+    header('HTTP/1.1 403 Forbidden');
+    echo 'Access denied. You are not assigned as a department approver.';
+    exit;
+}
+
 $campusId = $user['campus_id'];
+$officeId = $approverInfo['office_id'];
+$officeName = $approverInfo['office_name'];
 
 // Get statistics
 $stats = [
@@ -22,47 +48,17 @@ $stats = [
     'total_released' => 0
 ];
 
-
-// Get statistics for release/return badges
-$campusId = $user['campus_id'];
-$pendingReleaseCount = 0;
-$pendingReturnCount = 0;
-$overdueCount = 0;
-
 try {
-    // Count pending releases (approved but not yet released)
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'approved' AND campus_id = ?");
-    $stmt->execute([$campusId]);
-    $pendingReleaseCount = (int)$stmt->fetchColumn();
-
-    // Count pending returns (released but not yet returned)
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ?");
-    $stmt->execute([$campusId]);
-    $pendingReturnCount = (int)$stmt->fetchColumn();
-
-    // Count overdue returns
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ? AND expected_return_date < CURDATE()");
-    $stmt->execute([$campusId]);
-    $overdueCount = (int)$stmt->fetchColumn();
-
-    // Count missing assets reports (active investigations)
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM missing_assets_reports WHERE campus_id = ? AND status IN ('reported', 'investigating')");
-    $stmt->execute([$campusId]);
-    $missingAssetsCount = (int)$stmt->fetchColumn();
-} catch (PDOException $e) {
-    error_log("Error fetching custodian statistics: " . $e->getMessage());
-}
-
-
-try {
-    // Pending release (approved by admin, not yet released)
+    // Pending release (approved by office, not yet released)
     $stmt = $pdo->prepare("
         SELECT COUNT(*) as count
         FROM asset_requests
         WHERE status = 'approved'
+        AND request_source = 'office'
+        AND target_office_id = ?
         AND campus_id = ?
     ");
-    $stmt->execute([$campusId]);
+    $stmt->execute([$officeId, $campusId]);
     $stats['pending_release'] = (int)$stmt->fetch()['count'];
 
     // Released today
@@ -70,10 +66,12 @@ try {
         SELECT COUNT(*) as count
         FROM asset_requests
         WHERE status = 'released'
+        AND request_source = 'office'
+        AND target_office_id = ?
         AND campus_id = ?
         AND DATE(released_date) = CURDATE()
     ");
-    $stmt->execute([$campusId]);
+    $stmt->execute([$officeId, $campusId]);
     $stats['released_today'] = (int)$stmt->fetch()['count'];
 
     // Total released this month
@@ -81,15 +79,33 @@ try {
         SELECT COUNT(*) as count
         FROM asset_requests
         WHERE status = 'released'
+        AND request_source = 'office'
+        AND target_office_id = ?
         AND campus_id = ?
         AND YEAR(released_date) = YEAR(CURDATE())
         AND MONTH(released_date) = MONTH(CURDATE())
     ");
-    $stmt->execute([$campusId]);
+    $stmt->execute([$officeId, $campusId]);
     $stats['total_released'] = (int)$stmt->fetch()['count'];
 
 } catch (PDOException $e) {
     error_log("Error fetching release statistics: " . $e->getMessage());
+}
+
+// Get count of pending returns for badge
+$pendingReturnCount = 0;
+try {
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) as count
+        FROM asset_requests
+        WHERE status = 'released'
+        AND request_source = 'office'
+        AND target_office_id = ?
+    ");
+    $stmt->execute([$officeId]);
+    $pendingReturnCount = (int)$stmt->fetchColumn();
+} catch (PDOException $e) {
+    error_log("Error fetching return count: " . $e->getMessage());
 }
 ?>
 <!DOCTYPE html>
@@ -116,62 +132,47 @@ try {
 <body class="bg-gray-100 font-sans">
 
     <div class="flex h-screen bg-gray-200">
-        <!-- Navigation -->
-          <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
+        <!-- Sidebar -->
+        <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
             <div class="flex items-center justify-center h-20 border-b border-gray-700">
                 <img src="../logo/1.png" alt="Logo" class="h-10 w-10 mr-3">
-                <span class="text-white text-lg font-bold">Custodian Panel</span>
+                <span class="text-white text-lg font-bold">Department Head</span>
             </div>
-            <nav class="flex-1 px-4 py-4 space-y-2 sidebar-scroll overflow-y-auto">
-                <!-- Simplified Navigation -->
-                <a href="dashboard.php" onclick="showTab('manage-assets')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-box-open w-6"></i><span>Manage Assets</span>
-                </a>
-                <a href="dashboard.php" onclick="showTab('offices')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-building w-6"></i><span>Offices</span>
+            <nav class="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
+                <!-- Dashboard -->
+                <a href="office_dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-home w-6"></i><span>Dashboard</span>
                 </a>
 
                 <!-- Divider -->
                 <div class="border-t border-gray-700 my-2"></div>
 
                 <!-- Approve Requests -->
-                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-check-circle w-6"></i>
                     <span>Approve Requests</span>
                 </a>
 
                 <!-- Release Assets -->
-                <a href="release_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                <a href="release_assets.php" class="flex items-center px-4 py-2 rounded-md bg-gray-700 text-white">
                     <i class="fas fa-hand-holding w-6"></i>
                     <span>Release Assets</span>
-                    <?php if ($pendingReleaseCount > 0): ?>
-                        <span class="ml-auto bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReleaseCount ?></span>
+                    <?php if ($stats['pending_release'] > 0): ?>
+                        <span class="ml-auto bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $stats['pending_release'] ?></span>
                     <?php endif; ?>
                 </a>
 
                 <!-- Return Assets -->
-                <a href="return_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                <a href="return_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-undo w-6"></i>
                     <span>Return Assets</span>
                     <?php if ($pendingReturnCount > 0): ?>
-                        <span class="ml-auto <?= $overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500' ?> text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReturnCount ?></span>
-                    <?php endif; ?>
-                </a>
-
-                <!-- Divider -->
-                <div class="border-t border-gray-700 my-2"></div>
-
-                <!-- Missing Assets -->
-                <a href="missing_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
-                    <i class="fas fa-search w-6"></i>
-                    <span>Missing Assets</span>
-                    <?php if ($missingAssetsCount > 0): ?>
-                        <span class="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $missingAssetsCount ?></span>
+                        <span class="ml-auto bg-yellow-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReturnCount ?></span>
                     <?php endif; ?>
                 </a>
 
                 <!-- Approval History -->
-                <a href="approval_history.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                <a href="approval_history.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-history w-6"></i>
                     <span>Approval History</span>
                 </a>
@@ -184,11 +185,15 @@ try {
             <header class="flex items-center justify-between p-4 bg-white border-b border-gray-200">
                 <div>
                     <h2 class="text-2xl font-bold text-gray-900">Release Approved Assets</h2>
-                    <p class="text-gray-600 mt-1">Hand out approved assets to requesters</p>
+                    <p class="text-gray-600 mt-1">Hand out approved assets to requesters from <?= htmlspecialchars($officeName) ?></p>
                 </div>
                 <div class="flex items-center space-x-4">
-                    <span class="text-sm text-gray-600">Welcome, <strong><?= htmlspecialchars($user['full_name']) ?></strong></span>
-                    <a href="../logout.php" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm">Logout</a>
+                    <a href="../profile.php" class="text-sm text-gray-600 hover:text-gray-900">
+                        <i class="fas fa-user-circle mr-1"></i> My Profile
+                    </a>
+                    <a href="../logout.php" class="text-sm text-red-600 hover:text-red-800 border border-red-200 px-3 py-1 rounded-lg hover:bg-red-50 transition-colors">
+                        <i class="fas fa-sign-out-alt mr-1"></i> Logout
+                    </a>
                 </div>
             </header>
 
@@ -297,7 +302,8 @@ try {
 
         async loadRequests() {
             try {
-                const response = await fetch('../api/requests.php?action=get_pending_requests');
+                // Load office-specific requests
+                const response = await fetch('../api/requests.php?action=get_office_requests_for_release');
                 const data = await response.json();
 
                 if (data.success) {
@@ -494,7 +500,7 @@ try {
                                     </button>
                                 </div>
                             ` : `
-                                <div class="flex justify-end pt-4 border-t">
+                                <div class="flex items-center justify-end space-x-3 pt-4 border-t">
                                     <button onclick="releaseManager.closeModal()"
                                             class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded-lg">
                                         Close
@@ -508,7 +514,7 @@ try {
                 modal.classList.remove('hidden');
             } catch (error) {
                 console.error('Error loading details:', error);
-                Swal.fire('Error', 'Failed to load request details', 'error');
+                Swal.fire('Error', error.message, 'error');
             }
         }
 
@@ -561,13 +567,18 @@ try {
         }
 
         escapeHtml(text) {
-            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
-            return text.replace(/[&<>"']/g, m => map[m]);
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
     }
 
     // Initialize
-    const releaseManager = new ReleaseManager();
+    let releaseManager;
+    document.addEventListener('DOMContentLoaded', () => {
+        releaseManager = new ReleaseManager();
+    });
     </script>
 </body>
 </html>

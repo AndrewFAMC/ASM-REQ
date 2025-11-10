@@ -96,29 +96,52 @@ try {
     </style>
 </head>
 <body class="bg-gray-100">
-    <div class="min-h-screen">
-        <!-- Header -->
-        <header class="bg-white shadow-sm border-b">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-                <div class="flex items-center justify-between">
-                    <div>
-                        <h1 class="text-2xl font-semibold text-gray-900">Admin Approval Dashboard</h1>
-                        <p class="text-sm text-gray-600 mt-1">Final approval for asset requests</p>
-                    </div>
-                    <div class="flex items-center space-x-4">
-                        <!-- Notification Bell -->
-                        <?php include dirname(__DIR__) . '/includes/notification_center.php'; ?>
-
-                        <a href="admin_dashboard.php" class="text-sm text-gray-600 hover:text-gray-900">
-                            <i class="fas fa-arrow-left mr-2"></i>Back to Dashboard
-                        </a>
-                    </div>
-                </div>
+    <div class="flex h-screen">
+        <!-- Sidebar -->
+        <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
+            <div class="flex items-center justify-center h-20 border-b border-gray-700">
+                <img src="../logo/1.png" alt="Logo" class="h-10 w-10 mr-3">
+                <span class="text-white text-lg font-bold">Admin Panel</span>
             </div>
-        </header>
+            <nav class="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
+                <a href="admin_dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-home w-6"></i><span>Dashboard</span>
+                </a>
+                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 bg-gray-700">
+                    <i class="fas fa-check-circle w-6"></i><span>Approve Requests</span>
+                </a>
+                <a href="users.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-users w-6"></i><span>User Management</span>
+                </a>
+                <a href="reports.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-chart-bar w-6"></i><span>Reports</span>
+                </a>
+            </nav>
+        </div>
 
-        <!-- Main Content -->
-        <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        <!-- Main content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="flex items-center justify-between p-4 bg-white border-b border-gray-200">
+                <div>
+                    <h1 class="text-2xl font-semibold text-gray-800">Approve Requests</h1>
+                    <p class="text-sm text-gray-600 mt-1">Final approval for asset requests</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <!-- Notification Bell -->
+                    <?php include dirname(__DIR__) . '/includes/notification_center.php'; ?>
+
+                    <a href="../profile.php" class="text-sm text-gray-600 hover:text-gray-900">
+                        <i class="fas fa-user-circle mr-1"></i> My Profile
+                    </a>
+                    <a href="../logout.php" class="text-sm text-red-600 hover:text-red-800 border border-red-200 px-3 py-1 rounded-lg hover:bg-red-50 transition-colors">
+                        <i class="fas fa-sign-out-alt mr-1"></i> Logout
+                    </a>
+                </div>
+            </header>
+
+            <!-- Content Area -->
+            <main class="flex-1 overflow-y-auto p-6">
             <!-- Statistics Cards -->
             <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
                 <!-- Pending Final Approval -->
@@ -673,5 +696,8 @@ try {
     // Initialize
     const requestManager = new AdminRequestManager();
     </script>
+            </main>
+        </div>
+    </div>
 </body>
 </html>

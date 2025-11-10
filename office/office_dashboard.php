@@ -1,6 +1,9 @@
 <?php
 require_once '../config.php';
 
+// Generate CSRF token
+generateCSRFToken();
+
 // Enforce authentication and role-based access
 if (!isLoggedIn() || !validateSession($pdo)) {
     // Check if this is an AJAX request
@@ -227,12 +230,96 @@ try {
         <!-- Sidebar -->
         <div class="w-64 bg-gray-800 text-gray-300">
             <div class="flex items-center justify-center h-20 border-b border-gray-700">
-                <span class="text-white text-lg font-bold">Office Panel</span>
+                <img src="../logo/1.png" alt="Logo" class="h-10 w-10 mr-3">
+                <span class="text-white text-lg font-bold">Dept Head</span>
             </div>
-            <nav class="mt-4">
-                <a href="#" class="flex items-center px-6 py-3 text-white bg-gray-700">
+            <nav class="mt-4 space-y-2 px-4">
+                <a href="office_dashboard.php" class="flex items-center px-4 py-3 text-white bg-gray-700 rounded-md">
                     <i class="fas fa-tachometer-alt w-6"></i>
                     <span>Dashboard</span>
+                </a>
+
+                <div class="border-t border-gray-700 my-2"></div>
+
+                <?php
+                // Check if user is a department approver
+                $checkApprover = $pdo->prepare("SELECT COUNT(*) as is_approver FROM department_approvers WHERE approver_user_id = ? AND is_active = TRUE");
+                $checkApprover->execute([$user['id']]);
+                $isApprover = $checkApprover->fetch()['is_approver'] > 0;
+
+                if ($isApprover):
+                ?>
+                <a href="approve_requests.php" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-md">
+                    <i class="fas fa-check-circle w-6"></i>
+                    <span>Approve Requests</span>
+                    <?php
+                    // Get pending approval count for dual-flow system
+                    // Office users approve requests where request_source='office' and target_office_id matches their office
+                    $stmt = $pdo->prepare("
+                        SELECT COUNT(*) as count
+                        FROM asset_requests ar
+                        WHERE ar.status = 'office_review'
+                        AND ar.request_source = 'office'
+                        AND ar.target_office_id = (SELECT office_id FROM department_approvers WHERE approver_user_id = ? LIMIT 1)
+                        AND ar.campus_id = ?
+                    ");
+                    $stmt->execute([$user['id'], $user['campus_id']]);
+                    $pendingCount = (int)$stmt->fetch()['count'];
+
+                    if ($pendingCount > 0):
+                    ?>
+                        <span class="ml-auto bg-yellow-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingCount ?></span>
+                    <?php endif; ?>
+                </a>
+
+                <a href="release_assets.php" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-md">
+                    <i class="fas fa-hand-holding w-6"></i>
+                    <span>Release Assets</span>
+                    <?php
+                    // Get approved requests ready for release
+                    $releaseStmt = $pdo->prepare("
+                        SELECT COUNT(*) as count
+                        FROM asset_requests ar
+                        WHERE ar.status = 'approved'
+                        AND ar.request_source = 'office'
+                        AND ar.target_office_id = (SELECT office_id FROM department_approvers WHERE approver_user_id = ? LIMIT 1)
+                        AND ar.campus_id = ?
+                    ");
+                    $releaseStmt->execute([$user['id'], $user['campus_id']]);
+                    $releaseCount = (int)$releaseStmt->fetch()['count'];
+
+                    if ($releaseCount > 0):
+                    ?>
+                        <span class="ml-auto bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $releaseCount ?></span>
+                    <?php endif; ?>
+                </a>
+
+                <a href="return_assets.php" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-md">
+                    <i class="fas fa-undo-alt w-6"></i>
+                    <span>Accept Returns</span>
+                    <?php
+                    // Get released assets pending return
+                    $returnStmt = $pdo->prepare("
+                        SELECT COUNT(*) as count
+                        FROM asset_requests ar
+                        WHERE ar.status = 'released'
+                        AND ar.request_source = 'office'
+                        AND ar.target_office_id = (SELECT office_id FROM department_approvers WHERE approver_user_id = ? LIMIT 1)
+                        AND ar.campus_id = ?
+                    ");
+                    $returnStmt->execute([$user['id'], $user['campus_id']]);
+                    $returnCount = (int)$returnStmt->fetch()['count'];
+
+                    if ($returnCount > 0):
+                    ?>
+                        <span class="ml-auto bg-blue-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $returnCount ?></span>
+                    <?php endif; ?>
+                </a>
+                <?php endif; ?>
+
+                <a href="approval_history.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-history w-6"></i>
+                    <span>Approval History</span>
                 </a>
             </nav>
         </div>
@@ -508,8 +595,6 @@ document.addEventListener('DOMContentLoaded', function() {
                 }
             } catch (error) {
                 Swal.fire('Request Failed!', 'An error occurred while declining the asset.', 'error');
-            } else {
-                Swal.fire('Error!', res.message, 'error');
             }
         }
     };

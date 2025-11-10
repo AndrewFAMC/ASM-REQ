@@ -1,33 +1,28 @@
 <?php
+/**
+ * Office Dashboard Redirect
+ * Redirects office users (department heads) to their proper dashboard
+ */
 require_once 'config.php';
 
 // Enforce authentication and role-based access
 if (!isLoggedIn() || !validateSession($pdo)) {
-    // Check if this is an AJAX request
-    $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest';
-    if ($isAjax) {
-        header('Content-Type: application/json');
-        echo json_encode(['success' => false, 'message' => 'Your session has expired. Please refresh the page and log in again.', 'session_expired' => true]);
-    } else {
-        header('Location: login.php');
-    }
-    exit; // Stop execution
-}
-$user = getUserInfo();
-$role = strtolower($user['role'] ?? '');
-if ($role !== 'office') {
-    $isAjax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest';
-    if ($isAjax) {
-        header('Content-Type: application/json');
-        echo json_encode(['success' => false, 'message' => 'Access denied. This page is for Office users only.']);
-    } else {
-        header('HTTP/1.1 403 Forbidden');
-        echo 'Access denied. This page is for Office users only.';
-    }
+    header('Location: login.php');
     exit;
 }
 
-$officeId = $user['office_id'] ?? 0;
+$user = getUserInfo();
+$role = strtolower($user['role'] ?? '');
+
+if ($role !== 'office') {
+    header('HTTP/1.1 403 Forbidden');
+    echo 'Access denied. This page is for Office/Department Head users only.';
+    exit;
+}
+
+// Redirect to office dashboard
+header('Location: office/dashboard.php');
+exit;
 
 // Handle AJAX requests
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {

@@ -166,6 +166,12 @@ try {
                         <span class="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $missingAssetsCount ?></span>
                     <?php endif; ?>
                 </a>
+
+                <!-- Approval History -->
+                <a href="approval_history.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-history w-6"></i>
+                    <span>Approval History</span>
+                </a>
             </nav>
         </div>
 

@@ -36,24 +36,48 @@ $campuses = $stmt->fetchAll();
 <body class="bg-gray-100">
     <div class="flex h-screen">
         <!-- Sidebar -->
-        <?php include 'includes/sidebar.php'; ?>
+        <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
+            <div class="flex items-center justify-center h-20 border-b border-gray-700">
+                <img src="../logo/1.png" alt="Logo" class="h-10 w-10 mr-3">
+                <span class="text-white text-lg font-bold">Admin Panel</span>
+            </div>
+            <nav class="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
+                <a href="admin_dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-home w-6"></i><span>Dashboard</span>
+                </a>
+                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-check-circle w-6"></i><span>Approve Requests</span>
+                </a>
+                <a href="users.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 bg-gray-700">
+                    <i class="fas fa-users w-6"></i><span>User Management</span>
+                </a>
+                <a href="reports.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-chart-bar w-6"></i><span>Reports</span>
+                </a>
+            </nav>
+        </div>
 
         <!-- Main Content -->
         <div class="flex-1 flex flex-col overflow-hidden">
             <!-- Header -->
-            <header class="bg-white shadow-sm border-b">
-                <div class="px-6 py-4">
-                    <div class="flex items-center justify-between">
-                        <h1 class="text-2xl font-semibold text-gray-900">User Management</h1>
-                        <div class="flex items-center space-x-4">
-                            <!-- Notification Bell -->
-                            <?php include __DIR__ . '/../includes/notification_center.php'; ?>
+            <header class="flex items-center justify-between p-4 bg-white border-b border-gray-200">
+                <div>
+                    <h1 class="text-2xl font-semibold text-gray-800">User Management</h1>
+                    <p class="text-sm text-gray-600 mt-1">Manage system users and permissions</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <!-- Notification Bell -->
+                    <?php include __DIR__ . '/../includes/notification_center.php'; ?>
 
-                            <button id="addUserBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center">
-                                <i class="fas fa-plus mr-2"></i>Add User
-                            </button>
-                        </div>
-                    </div>
+                    <button id="addUserBtn" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center">
+                        <i class="fas fa-plus mr-2"></i>Add User
+                    </button>
+                    <a href="../profile.php" class="text-sm text-gray-600 hover:text-gray-900">
+                        <i class="fas fa-user-circle mr-1"></i> My Profile
+                    </a>
+                    <a href="../logout.php" class="text-sm text-red-600 hover:text-red-800 border border-red-200 px-3 py-1 rounded-lg hover:bg-red-50 transition-colors">
+                        <i class="fas fa-sign-out-alt mr-1"></i> Logout
+                    </a>
                 </div>
             </header>
 

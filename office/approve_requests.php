@@ -1,8 +1,8 @@
 <?php
 /**
- * Custodian Approval Dashboard
+ * Office/Department Head Approval Dashboard
  *
- * Allows custodians to review and approve/reject asset requests
+ * Allows department heads (office role) to review and approve/reject asset requests
  */
 
 require_once '../config.php';
@@ -16,51 +16,83 @@ if (!isLoggedIn() || !validateSession($pdo)) {
 $user = getUserInfo();
 $role = strtolower($user['role'] ?? '');
 
-if ($role !== 'custodian' && $role !== 'admin') {
+if ($role !== 'office') {
     header('HTTP/1.1 403 Forbidden');
-    echo 'Access denied. This page is for Custodian users only.';
+    echo 'Access denied. This page is for Office/Department Head users only.';
+    exit;
+}
+
+// Verify user is actually a department approver
+$deptCheck = $pdo->prepare("
+    SELECT da.*, o.office_name
+    FROM department_approvers da
+    JOIN offices o ON da.office_id = o.id
+    WHERE da.approver_user_id = ? AND da.is_active = TRUE
+");
+$deptCheck->execute([$user['id']]);
+$approverInfo = $deptCheck->fetch();
+
+if (!$approverInfo) {
+    header('HTTP/1.1 403 Forbidden');
+    echo 'Access denied. You are not assigned as a department approver.';
     exit;
 }
 
 $campusId = $user['campus_id'];
+$officeId = $approverInfo['office_id'];
+$officeName = $approverInfo['office_name'];
 
-// Get statistics for release/return badges
-$campusId = $user['campus_id'];
-$pendingReleaseCount = 0;
-$pendingReturnCount = 0;
-$overdueCount = 0;
+// Get statistics
+$stats = [
+    'pending_approval' => 0,
+    'approved_today' => 0,
+    'total_this_month' => 0
+];
 
 try {
-    // Count pending releases (approved but not yet released)
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'approved' AND campus_id = ?");
-    $stmt->execute([$campusId]);
-    $pendingReleaseCount = (int)$stmt->fetchColumn();
+    // Pending approval (office_review status for dual-flow system)
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) as count
+        FROM asset_requests ar
+        WHERE ar.status = 'office_review'
+        AND ar.request_source = 'office'
+        AND ar.target_office_id = ?
+        AND ar.campus_id = ?
+    ");
+    $stmt->execute([$officeId, $campusId]);
+    $stats['pending_approval'] = (int)$stmt->fetch()['count'];
 
-    // Count pending returns (released but not yet returned)
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ?");
-    $stmt->execute([$campusId]);
-    $pendingReturnCount = (int)$stmt->fetchColumn();
+    // Approved today by this office
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) as count
+        FROM asset_requests
+        WHERE office_approved_by = ?
+        AND DATE(office_approved_at) = CURDATE()
+    ");
+    $stmt->execute([$user['id']]);
+    $stats['approved_today'] = (int)$stmt->fetch()['count'];
 
-    // Count overdue returns
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ? AND expected_return_date < CURDATE()");
-    $stmt->execute([$campusId]);
-    $overdueCount = (int)$stmt->fetchColumn();
+    // Total approved this month
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) as count
+        FROM asset_requests
+        WHERE office_approved_by = ?
+        AND YEAR(office_approved_at) = YEAR(CURDATE())
+        AND MONTH(office_approved_at) = MONTH(CURDATE())
+    ");
+    $stmt->execute([$user['id']]);
+    $stats['total_this_month'] = (int)$stmt->fetch()['count'];
 
-    // Count missing assets reports (active investigations)
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM missing_assets_reports WHERE campus_id = ? AND status IN ('reported', 'investigating')");
-    $stmt->execute([$campusId]);
-    $missingAssetsCount = (int)$stmt->fetchColumn();
 } catch (PDOException $e) {
-    error_log("Error fetching custodian statistics: " . $e->getMessage());
+    error_log("Error fetching department approval statistics: " . $e->getMessage());
 }
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Approve Requests - Custodian Dashboard</title>
+    <title>Approve Requests - Department Head Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
     <script src="../assets/js/sweetalert-config.js"></script>
@@ -91,61 +123,43 @@ try {
 <body class="bg-gray-100">
     <div class="flex h-screen">
         <!-- Sidebar -->
-      <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
+        <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
             <div class="flex items-center justify-center h-20 border-b border-gray-700">
                 <img src="../logo/1.png" alt="Logo" class="h-10 w-10 mr-3">
-                <span class="text-white text-lg font-bold">Custodian Panel</span>
+                <span class="text-white text-lg font-bold">Department Head</span>
             </div>
-            <nav class="flex-1 px-4 py-4 space-y-2 sidebar-scroll overflow-y-auto">
-                <!-- Simplified Navigation -->
-                <a href="#" onclick="showTab('manage-assets')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-box-open w-6"></i><span>Manage Assets</span>
-                </a>
-                <a href="#" onclick="showTab('offices')" class="tab-item flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-building w-6"></i><span>Offices</span>
+            <nav class="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
+                <!-- Dashboard -->
+                <a href="office_dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-home w-6"></i><span>Dashboard</span>
                 </a>
 
                 <!-- Divider -->
                 <div class="border-t border-gray-700 my-2"></div>
 
                 <!-- Approve Requests -->
-                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md bg-gray-700 text-white">
                     <i class="fas fa-check-circle w-6"></i>
                     <span>Approve Requests</span>
+                    <?php if ($stats['pending_approval'] > 0): ?>
+                        <span class="ml-auto bg-yellow-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $stats['pending_approval'] ?></span>
+                    <?php endif; ?>
                 </a>
 
                 <!-- Release Assets -->
-                <a href="release_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                <a href="release_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-hand-holding w-6"></i>
                     <span>Release Assets</span>
-                    <?php if ($pendingReleaseCount > 0): ?>
-                        <span class="ml-auto bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReleaseCount ?></span>
-                    <?php endif; ?>
                 </a>
 
-                <!-- Return Assets -->
-                <a href="return_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
-                    <i class="fas fa-undo w-6"></i>
-                    <span>Return Assets</span>
-                    <?php if ($pendingReturnCount > 0): ?>
-                        <span class="ml-auto <?= $overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500' ?> text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReturnCount ?></span>
-                    <?php endif; ?>
+                <!-- Accept Returns -->
+                <a href="return_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-undo-alt w-6"></i>
+                    <span>Accept Returns</span>
                 </a>
 
-                <!-- Divider -->
-                <div class="border-t border-gray-700 my-2"></div>
-
-                <!-- Missing Assets -->
-                <a href="missing_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
-                    <i class="fas fa-search w-6"></i>
-                    <span>Missing Assets</span>
-                    <?php if ($missingAssetsCount > 0): ?>
-                        <span class="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $missingAssetsCount ?></span>
-                    <?php endif; ?>
-                </a>
-
-                <!-- Approval History -->
-                <a href="approval_history.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                <!-- My Approvals History -->
+                <a href="approval_history.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-history w-6"></i>
                     <span>Approval History</span>
                 </a>
@@ -160,7 +174,10 @@ try {
                     <div class="flex items-center justify-between">
                         <div>
                             <h1 class="text-2xl font-semibold text-gray-900">Approve Asset Requests</h1>
-                            <p class="text-sm text-gray-600 mt-1">Review and approve pending asset requests</p>
+                            <p class="text-sm text-gray-600 mt-1">
+                                <i class="fas fa-building text-blue-600 mr-1"></i>
+                                Department: <strong><?= htmlspecialchars($officeName) ?></strong>
+                            </p>
                         </div>
                         <div class="flex items-center space-x-4">
                             <!-- Notification Bell -->
@@ -181,15 +198,15 @@ try {
             <main class="flex-1 overflow-y-auto p-6">
                 <!-- Statistics Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    <!-- Pending Requests -->
+                    <!-- Pending Approval -->
                     <div class="bg-white rounded-lg shadow p-6 border-l-4 border-yellow-500">
                         <div class="flex items-center">
                             <div class="flex-shrink-0 bg-yellow-100 rounded-full p-3">
                                 <i class="fas fa-clock text-yellow-600 text-xl"></i>
                             </div>
                             <div class="ml-4">
-                                <p class="text-sm text-gray-600">Pending Approval</p>
-                                <p id="pendingCount" class="text-2xl font-bold text-gray-900">0</p>
+                                <p class="text-sm text-gray-600">Pending Your Approval</p>
+                                <p id="pendingCount" class="text-2xl font-bold text-gray-900"><?= $stats['pending_approval'] ?></p>
                             </div>
                         </div>
                     </div>
@@ -202,12 +219,12 @@ try {
                             </div>
                             <div class="ml-4">
                                 <p class="text-sm text-gray-600">Approved Today</p>
-                                <p id="approvedTodayCount" class="text-2xl font-bold text-gray-900">0</p>
+                                <p class="text-2xl font-bold text-gray-900"><?= $stats['approved_today'] ?></p>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Total Requests -->
+                    <!-- Total This Month -->
                     <div class="bg-white rounded-lg shadow p-6 border-l-4 border-blue-500">
                         <div class="flex items-center">
                             <div class="flex-shrink-0 bg-blue-100 rounded-full p-3">
@@ -215,31 +232,37 @@ try {
                             </div>
                             <div class="ml-4">
                                 <p class="text-sm text-gray-600">Total This Month</p>
-                                <p id="totalCount" class="text-2xl font-bold text-gray-900">0</p>
+                                <p class="text-2xl font-bold text-gray-900"><?= $stats['total_this_month'] ?></p>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Info Banner -->
+                <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-6">
+                    <div class="flex">
+                        <div class="flex-shrink-0">
+                            <i class="fas fa-info-circle text-blue-600"></i>
+                        </div>
+                        <div class="ml-3">
+                            <p class="text-sm text-blue-800">
+                                <strong>Your Role:</strong> You are authorized to approve asset requests directed to the <strong><?= htmlspecialchars($officeName) ?></strong> office.
+                                These are requests where employees chose to request assets from your office inventory.
+                            </p>
                         </div>
                     </div>
                 </div>
 
                 <!-- Filters -->
                 <div class="bg-white rounded-lg shadow-sm p-4 mb-6">
-                    <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
                             <select id="statusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-                                <option value="pending">Pending Only</option>
+                                <option value="office_review">Pending My Approval</option>
                                 <option value="all">All Requests</option>
-                                <option value="approved_custodian">Approved</option>
+                                <option value="approved">Approved by Me</option>
                                 <option value="rejected">Rejected</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Date Range</label>
-                            <select id="dateFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-                                <option value="today">Today</option>
-                                <option value="week">This Week</option>
-                                <option value="month">This Month</option>
-                                <option value="all">All Time</option>
                             </select>
                         </div>
                         <div class="col-span-2">
@@ -313,6 +336,7 @@ try {
             this.filteredRequests = [];
             this.currentRequest = null;
             this.csrfToken = document.querySelector('meta[name="csrf-token"]').content;
+            this.officeId = <?= json_encode($officeId) ?>;
 
             this.init();
         }
@@ -340,12 +364,18 @@ try {
             this.showLoading();
 
             try {
+                const status = document.getElementById('statusFilter').value;
+                // Use get_pending_requests which is already filtered by role and office in the backend
                 const response = await fetch('/AMS-REQ/api/requests.php?action=get_pending_requests');
                 const data = await response.json();
 
                 if (data.success) {
-                    this.requests = data.requests;
-                    this.updateStatistics();
+                    // Backend already filters by office_id, just apply status filter if needed
+                    if (status === 'all') {
+                        this.requests = data.requests;
+                    } else {
+                        this.requests = data.requests.filter(r => r.status === status);
+                    }
                     this.applyFilters();
                 } else {
                     this.showEmpty();
@@ -357,60 +387,15 @@ try {
             }
         }
 
-        updateStatistics() {
-            // Pending count
-            const pending = this.requests.filter(r => r.status === 'pending').length;
-            document.getElementById('pendingCount').textContent = pending;
-
-            // Approved today
-            const today = new Date().toISOString().split('T')[0];
-            const approvedToday = this.requests.filter(r =>
-                r.status === 'approved_custodian' &&
-                r.custodian_reviewed_at &&
-                r.custodian_reviewed_at.startsWith(today)
-            ).length;
-            document.getElementById('approvedTodayCount').textContent = approvedToday;
-
-            // Total this month
-            const thisMonth = new Date().toISOString().slice(0, 7);
-            const totalMonth = this.requests.filter(r =>
-                r.request_date && r.request_date.startsWith(thisMonth)
-            ).length;
-            document.getElementById('totalCount').textContent = totalMonth;
-        }
-
         applyFilters() {
-            const statusFilter = document.getElementById('statusFilter').value;
-            const dateFilter = document.getElementById('dateFilter').value;
             const searchTerm = document.getElementById('searchInput').value.toLowerCase();
 
             this.filteredRequests = this.requests.filter(request => {
-                // Status filter
-                if (statusFilter !== 'all' && request.status !== statusFilter) {
-                    return false;
-                }
-
-                // Date filter
-                if (request.request_date) {
-                    const requestDate = new Date(request.request_date);
-                    const now = new Date();
-                    if (dateFilter === 'today') {
-                        if (requestDate.toDateString() !== now.toDateString()) return false;
-                    } else if (dateFilter === 'week') {
-                        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                        if (requestDate < weekAgo) return false;
-                    } else if (dateFilter === 'month') {
-                        if (requestDate.getMonth() !== now.getMonth() ||
-                            requestDate.getFullYear() !== now.getFullYear()) return false;
-                    }
-                }
-
                 // Search filter
                 if (searchTerm) {
                     const searchableText = `${request.requester_name} ${request.asset_name} ${request.purpose}`.toLowerCase();
                     if (!searchableText.includes(searchTerm)) return false;
                 }
-
                 return true;
             });
 
@@ -439,8 +424,7 @@ try {
 
         createRequestCard(request) {
             const statusBadge = this.getStatusBadge(request.status);
-            const urgency = this.getUrgency(request.expected_return_date);
-            const timeAgo = this.getTimeAgo(request.created_at);
+            const timeAgo = this.getTimeAgo(request.request_date);
 
             return `
                 <div class="request-card p-6">
@@ -449,7 +433,6 @@ try {
                             <div class="flex items-center space-x-3 mb-2">
                                 <h3 class="text-lg font-semibold text-gray-900">${this.escapeHtml(request.asset_name)}</h3>
                                 ${statusBadge}
-                                ${urgency ? `<span class="badge" style="background-color: #fee2e2; color: #991b1b;">${urgency}</span>` : ''}
                             </div>
 
                             <div class="grid grid-cols-2 gap-4 mt-3">
@@ -476,6 +459,15 @@ try {
                                 <p class="text-gray-900">${this.escapeHtml(request.purpose || 'N/A')}</p>
                             </div>
 
+                            ${request.custodian_name ? `
+                                <div class="mt-3 bg-green-50 border border-green-200 rounded p-2">
+                                    <p class="text-xs text-green-800">
+                                        <i class="fas fa-check-circle mr-1"></i>
+                                        Approved by Custodian: ${this.escapeHtml(request.custodian_name)}
+                                    </p>
+                                </div>
+                            ` : ''}
+
                             <div class="mt-3 text-xs text-gray-500">
                                 <i class="far fa-clock mr-1"></i>Requested ${timeAgo}
                             </div>
@@ -485,7 +477,7 @@ try {
                             <button class="view-request-btn bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm" data-request-id="${request.id}">
                                 <i class="fas fa-eye mr-2"></i>View Details
                             </button>
-                            ${request.status === 'pending' ? `
+                            ${request.status === 'office_review' ? `
                                 <button onclick="requestManager.quickApprove(${request.id})" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm">
                                     <i class="fas fa-check mr-2"></i>Quick Approve
                                 </button>
@@ -498,19 +490,11 @@ try {
 
         getStatusBadge(status) {
             const badges = {
-                'pending': '<span class="badge badge-pending">Pending</span>',
-                'approved_custodian': '<span class="badge badge-approved">Approved</span>',
+                'office_review': '<span class="badge badge-pending">Pending Your Approval</span>',
+                'approved': '<span class="badge badge-approved">Approved</span>',
                 'rejected': '<span class="badge badge-rejected">Rejected</span>'
             };
             return badges[status] || `<span class="badge">${status}</span>`;
-        }
-
-        getUrgency(expectedReturnDate) {
-            const daysUntilReturn = Math.ceil((new Date(expectedReturnDate) - new Date()) / (1000 * 60 * 60 * 24));
-            if (daysUntilReturn < 0) return 'OVERDUE';
-            if (daysUntilReturn <= 2) return 'URGENT';
-            if (daysUntilReturn <= 7) return 'SOON';
-            return null;
         }
 
         async viewRequest(requestId) {
@@ -552,7 +536,13 @@ try {
                     <div>
                         <label class="text-sm font-medium text-gray-600">Asset</label>
                         <p class="text-lg font-semibold text-gray-900">${this.escapeHtml(request.asset_name)}</p>
-                        <p class="text-sm text-gray-600">${this.escapeHtml(request.category_name)} ${request.serial_number ? `(SN: ${request.serial_number})` : ''}</p>
+                        <p class="text-sm text-gray-600">${this.escapeHtml(request.category_name)}</p>
+                    </div>
+
+                    <div>
+                        <label class="text-sm font-medium text-gray-600">Requester (Your Department Employee)</label>
+                        <p class="text-gray-900 font-semibold">${this.escapeHtml(request.requester_name)}</p>
+                        <p class="text-sm text-gray-600">${request.requester_email}</p>
                     </div>
 
                     <div class="grid grid-cols-2 gap-4">
@@ -561,21 +551,9 @@ try {
                             <p class="text-gray-900 font-semibold">${request.quantity}</p>
                         </div>
                         <div>
-                            <label class="text-sm font-medium text-gray-600">Asset Value</label>
-                            <p class="text-gray-900 font-semibold">₱${parseFloat(request.asset_value || 0).toLocaleString()}</p>
+                            <label class="text-sm font-medium text-gray-600">Expected Return Date</label>
+                            <p class="text-gray-900 font-semibold">${new Date(request.expected_return_date).toLocaleDateString()}</p>
                         </div>
-                    </div>
-
-                    <div>
-                        <label class="text-sm font-medium text-gray-600">Requester</label>
-                        <p class="text-gray-900 font-semibold">${this.escapeHtml(request.requester_name)}</p>
-                        <p class="text-sm text-gray-600">${request.requester_email} ${request.requester_phone ? `• ${request.requester_phone}` : ''}</p>
-                    </div>
-
-                    <div>
-                        <label class="text-sm font-medium text-gray-600">Expected Return Date</label>
-                        <p class="text-gray-900 font-semibold">${new Date(request.expected_return_date).toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</p>
-                        <p class="text-sm text-gray-600">${this.getDaysUntil(request.expected_return_date)}</p>
                     </div>
 
                     <div>
@@ -587,8 +565,8 @@ try {
                         <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                             <label class="text-sm font-medium text-green-800">Custodian Approval</label>
                             <p class="text-green-900"><i class="fas fa-check-circle mr-2"></i>Approved by ${this.escapeHtml(request.custodian_name)}</p>
-                            <p class="text-sm text-green-700">${new Date(request.custodian_approved_at).toLocaleString()}</p>
-                            ${request.custodian_comments ? `<p class="text-sm text-green-800 mt-2"><strong>Comments:</strong> ${this.escapeHtml(request.custodian_comments)}</p>` : ''}
+                            <p class="text-sm text-green-700">${new Date(request.custodian_reviewed_at).toLocaleString()}</p>
+                            ${request.custodian_review_notes ? `<p class="text-sm text-green-800 mt-2"><strong>Notes:</strong> ${this.escapeHtml(request.custodian_review_notes)}</p>` : ''}
                         </div>
                     ` : ''}
 
@@ -598,15 +576,11 @@ try {
                             <p class="text-red-900">${this.escapeHtml(request.rejection_reason)}</p>
                         </div>
                     ` : ''}
-
-                    <div class="text-sm text-gray-500">
-                        <p><i class="far fa-clock mr-2"></i>Requested on ${new Date(request.created_at).toLocaleString()}</p>
-                    </div>
                 </div>
             `;
 
             // Show action buttons only for pending requests
-            if (request.status === 'pending') {
+            if (request.status === 'office_review') {
                 actions.innerHTML = `
                     <div class="flex justify-end space-x-3">
                         <button onclick="closeModal()" class="bg-gray-300 hover:bg-gray-400 text-gray-800 px-6 py-2 rounded-lg font-medium">
@@ -648,7 +622,7 @@ try {
             if (comments !== undefined) {
                 try {
                     const formData = new FormData();
-                    formData.append('action', 'approve_as_custodian');
+                    formData.append('action', 'approve_as_office');
                     formData.append('request_id', this.currentRequest.id);
                     formData.append('comments', comments);
                     formData.append('csrf_token', this.csrfToken);
@@ -734,7 +708,7 @@ try {
             if (result.isConfirmed) {
                 try {
                     const formData = new FormData();
-                    formData.append('action', 'approve_as_custodian');
+                    formData.append('action', 'approve_as_office');
                     formData.append('request_id', requestId);
                     formData.append('comments', '');
                     formData.append('csrf_token', this.csrfToken);
@@ -761,18 +735,9 @@ try {
         }
 
         clearFilters() {
-            document.getElementById('statusFilter').value = 'pending';
-            document.getElementById('dateFilter').value = 'all';
+            document.getElementById('statusFilter').value = 'office_review';
             document.getElementById('searchInput').value = '';
-            this.applyFilters();
-        }
-
-        getDaysUntil(date) {
-            const days = Math.ceil((new Date(date) - new Date()) / (1000 * 60 * 60 * 24));
-            if (days < 0) return `${Math.abs(days)} days overdue`;
-            if (days === 0) return 'Today';
-            if (days === 1) return 'Tomorrow';
-            return `In ${days} days`;
+            this.loadRequests();
         }
 
         getTimeAgo(datetime) {
