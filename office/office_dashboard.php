@@ -272,14 +272,19 @@ try {
             #tag-to-print table {
                 width: 100% !important;
                 border-collapse: collapse !important;
-                font-size: 9px !important;
+                font-size: 10px !important;
                 height: 100% !important;
             }
 
             #tag-to-print td {
                 border: 1px solid black !important;
-                padding: 1mm !important;
-                font-size: 9px !important;
+                padding: 1.5mm !important;
+                font-size: 10px !important;
+                line-height: 1.4 !important;
+            }
+
+            #tag-to-print tr {
+                height: auto !important;
             }
 
             #tag-to-print .text-sm {
