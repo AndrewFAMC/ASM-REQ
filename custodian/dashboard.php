@@ -490,13 +490,13 @@ $csrfToken = $_SESSION['csrf_token'];
 
             #pt_qrcode canvas,
             #pt_qrcode img {
-                max-width: 25mm !important;
-                max-height: 25mm !important;
+                max-width: 32mm !important;
+                max-height: 32mm !important;
             }
 
             #pt_barcode {
-                max-width: 38mm !important;
-                max-height: 15mm !important;
+                max-width: 45mm !important;
+                max-height: 20mm !important;
             }
 
             .print\:hidden {
@@ -1360,8 +1360,8 @@ document.addEventListener('DOMContentLoaded', function() {
         JsBarcode("#barcode", selectedAsset.barcode, {
             format: "CODE128",
             lineColor: "#000",
-            width: 2,
-            height: 100,
+            width: 1.5,
+            height: 60,
             displayValue: false
         });
         document.getElementById('codeModalTitle').innerText = 'Barcode';
@@ -1621,21 +1621,23 @@ document.addEventListener('DOMContentLoaded', function() {
             qrContainer.innerHTML = '';
             new QRCode(qrContainer, {
                 text: tag.qr_code_url,
-                width: 80,
-                height: 80,
+                width: 120,
+                height: 120,
                 colorDark : "#000000",
                 colorLight : "#ffffff",
-                correctLevel : QRCode.CorrectLevel.H
+                correctLevel : QRCode.CorrectLevel.L
             });
 
-            // Generate Barcode
+            // Generate Barcode - Optimized for thermal printing
             JsBarcode("#pt_barcode", tag.tag_number, {
                 format: "CODE128",
-                lineColor: "#000",
-                width: 1.5,
-                height: 40,
+                lineColor: "#000000",
+                width: 2,
+                height: 100,
                 displayValue: true,
-                fontSize: 12
+                fontSize: 18,
+                margin: 5,
+                background: "#ffffff"
             });
 
             printableTagModal.classList.remove('hidden');

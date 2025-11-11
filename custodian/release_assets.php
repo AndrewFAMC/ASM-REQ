@@ -517,8 +517,8 @@ try {
 
             #pt_qrcode canvas,
             #pt_qrcode img {
-                max-width: 25mm !important;
-                max-height: 25mm !important;
+                max-width: 32mm !important;
+                max-height: 32mm !important;
             }
 
             #pt_barcode {
@@ -937,17 +937,23 @@ try {
                 qrContainer.innerHTML = '';
                 new QRCode(qrContainer, {
                     text: `${window.location.origin}/AMS-REQ/asset_lookup.php?tag=${tag.tag_number}`,
-                    width: 80,
-                    height: 80
+                    width: 120,
+                    height: 120,
+                    colorDark : "#000000",
+                    colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.L
                 });
 
-                // Generate barcode
+                // Generate barcode - Optimized for thermal printing
                 JsBarcode("#pt_barcode", tag.tag_number, {
                     format: "CODE128",
-                    width: 1.5,
-                    height: 40,
+                    lineColor: "#000000",
+                    width: 2,
+                    height: 100,
                     displayValue: true,
-                    fontSize: 12
+                    fontSize: 18,
+                    margin: 5,
+                    background: "#ffffff"
                 });
 
                 // Show the modal

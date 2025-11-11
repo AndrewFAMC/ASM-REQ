@@ -23,7 +23,24 @@ $user = getUserInfo();
 $campusId = $user['campus_id'];
 
 try {
-    // Search for asset by barcode, serial number, or asset name
+    // Search for asset by barcode, serial number, tag number, or asset name
+    // First try to find by tag number in inventory_tags table
+    $tagStmt = $pdo->prepare("
+        SELECT a.id as asset_id
+        FROM inventory_tags it
+        JOIN assets a ON it.asset_id = a.id
+        WHERE a.campus_id = ?
+        AND it.tag_number LIKE ?
+        LIMIT 1
+    ");
+
+    $searchPattern = "%{$searchTerm}%";
+    $tagStmt->execute([$campusId, $searchPattern]);
+    $tagResult = $tagStmt->fetch();
+
+    // If found by tag number, use that asset_id, otherwise search normally
+    $assetIdFromTag = $tagResult ? $tagResult['asset_id'] : null;
+
     $stmt = $pdo->prepare("
         SELECT
             a.*,
@@ -45,12 +62,12 @@ try {
             a.barcode LIKE ? OR
             a.serial_number LIKE ? OR
             LOWER(a.asset_name) LIKE ? OR
+            a.id = ? OR
             a.id = ?
         )
         LIMIT 1
     ");
 
-    $searchPattern = "%{$searchTerm}%";
     $assetId = is_numeric($searchTerm) ? (int)$searchTerm : 0;
 
     $stmt->execute([
@@ -58,7 +75,8 @@ try {
         $searchPattern,
         $searchPattern,
         strtolower($searchPattern),
-        $assetId
+        $assetId,
+        $assetIdFromTag
     ]);
 
     $asset = $stmt->fetch();
