@@ -101,7 +101,8 @@ try {
                     dept.full_name as department_approver_name,
                     admin.full_name as admin_approver_name,
                     office_head.full_name as office_approver_name,
-                    target_office.office_name as target_office_name
+                    target_office.office_name as target_office_name,
+                    requester_office.office_name as requester_office_name
                 FROM asset_requests ar
                 JOIN assets a ON ar.asset_id = a.id
                 JOIN categories c ON a.category_id = c.id
@@ -112,6 +113,7 @@ try {
                 LEFT JOIN users admin ON ar.final_approved_by = admin.id
                 LEFT JOIN users office_head ON ar.office_approved_by = office_head.id
                 LEFT JOIN offices target_office ON ar.target_office_id = target_office.id
+                LEFT JOIN offices requester_office ON ar.requester_office_id = requester_office.id
                 WHERE $whereClause
                 ORDER BY ar.request_date DESC
             ");
@@ -1194,6 +1196,384 @@ try {
                 'requests' => $requests,
                 'count' => count($requests)
             ]);
+            break;
+
+        case 'generate_random_tag_number':
+            if (!hasRole('custodian') && !hasRole('admin')) {
+                throw new Exception('Only custodians and admins can generate tag numbers');
+            }
+
+            // Get request ID if provided (to determine office prefix)
+            $requestId = isset($_GET['request_id']) ? (int)$_GET['request_id'] : null;
+            $officePrefix = 'OFFICE'; // Default prefix
+
+            // If request ID provided, get the office prefix
+            if ($requestId) {
+                $stmt = $pdo->prepare("
+                    SELECT o.office_name
+                    FROM asset_requests ar
+                    JOIN offices o ON ar.requester_office_id = o.id
+                    WHERE ar.id = ?
+                ");
+                $stmt->execute([$requestId]);
+                $officeName = $stmt->fetchColumn();
+
+                if ($officeName) {
+                    // Extract prefix from office name (e.g., "MIS Office" -> "MIS")
+                    $words = explode(' ', $officeName);
+                    $officePrefix = strtoupper(substr($words[0], 0, 3));
+                }
+            }
+
+            // Generate tag number with format: {PREFIX}-{MMDDYY}-{RANDOM4DIGITS}
+            $month = date('m');
+            $day = date('d');
+            $year = date('y');
+
+            // Generate random 4-digit number and ensure uniqueness
+            $maxAttempts = 100;
+            $attempts = 0;
+            $tagNumber = null;
+
+            while ($attempts < $maxAttempts) {
+                $random = str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+                $proposedTag = "{$officePrefix}-{$month}{$day}{$year}-{$random}";
+
+                // Check if tag already exists
+                $stmt = $pdo->prepare("SELECT id FROM inventory_tags WHERE tag_number = ?");
+                $stmt->execute([$proposedTag]);
+
+                if (!$stmt->fetch()) {
+                    $tagNumber = $proposedTag;
+                    break;
+                }
+
+                $attempts++;
+            }
+
+            if (!$tagNumber) {
+                throw new Exception('Failed to generate unique tag number after multiple attempts');
+            }
+
+            echo json_encode([
+                'success' => true,
+                'tagNumber' => $tagNumber
+            ]);
+            break;
+
+        case 'auto_generate_tag_and_transfer':
+            if (!hasRole('custodian') && !hasRole('admin')) {
+                throw new Exception('Only custodians and admins can release assets');
+            }
+
+            $requestId = (int)($_POST['request_id'] ?? 0);
+
+            if (!$requestId) {
+                throw new Exception('Request ID is required');
+            }
+
+            // Get request details
+            $stmt = $pdo->prepare("
+                SELECT ar.*,
+                       a.asset_name,
+                       u.full_name as requester_name,
+                       u.email as requester_email,
+                       o.office_name as requester_office_name
+                FROM asset_requests ar
+                JOIN assets a ON ar.asset_id = a.id
+                JOIN users u ON ar.requester_id = u.id
+                LEFT JOIN offices o ON ar.requester_office_id = o.id
+                WHERE ar.id = ?
+            ");
+            $stmt->execute([$requestId]);
+            $request = $stmt->fetch();
+
+            if (!$request) {
+                throw new Exception('Request not found');
+            }
+
+            if ($request['status'] !== 'approved') {
+                throw new Exception('Request must be approved before release. Current status: ' . $request['status']);
+            }
+
+            if (!$request['requester_office_id']) {
+                throw new Exception('This is not an office transfer request');
+            }
+
+            // Auto-generate tag number
+            $officeName = $request['requester_office_name'];
+            $words = explode(' ', $officeName);
+            $officePrefix = strtoupper(substr($words[0], 0, 3));
+
+            $month = date('m');
+            $day = date('d');
+            $year = date('y');
+
+            // Generate unique random tag
+            $maxAttempts = 100;
+            $attempts = 0;
+            $tagNumber = null;
+
+            while ($attempts < $maxAttempts) {
+                $random = str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+                $proposedTag = "{$officePrefix}-{$month}{$day}{$year}-{$random}";
+
+                $stmt = $pdo->prepare("SELECT id FROM inventory_tags WHERE tag_number = ?");
+                $stmt->execute([$proposedTag]);
+
+                if (!$stmt->fetch()) {
+                    $tagNumber = $proposedTag;
+                    break;
+                }
+
+                $attempts++;
+            }
+
+            if (!$tagNumber) {
+                throw new Exception('Failed to generate unique tag number');
+            }
+
+            // Begin transaction
+            $pdo->beginTransaction();
+
+            try {
+                // 1. Create inventory tag
+                $stmt = $pdo->prepare("
+                    INSERT INTO inventory_tags
+                    (tag_number, asset_id, office_id, status, assigned_by_custodian_id,
+                     inventory_date, remarks, quantity, unit_price, total_value)
+                    VALUES (?, ?, ?, 'Pending Verification', ?, NOW(), ?, ?, 0, 0)
+                ");
+                $stmt->execute([
+                    $tagNumber,
+                    $request['asset_id'],
+                    $request['requester_office_id'],
+                    $userId,
+                    "Auto-generated via approved office request #{$requestId}",
+                    $request['quantity']
+                ]);
+                $tagId = $pdo->lastInsertId();
+
+                // 2. Update asset: decrease quantity, assign to office
+                $stmt = $pdo->prepare("SELECT quantity FROM assets WHERE id = ?");
+                $stmt->execute([$request['asset_id']]);
+                $currentQuantity = $stmt->fetchColumn();
+
+                if ($currentQuantity < $request['quantity']) {
+                    throw new Exception('Insufficient asset quantity available');
+                }
+
+                $stmt = $pdo->prepare("
+                    UPDATE assets
+                    SET quantity = quantity - ?,
+                        assigned_to = ?,
+                        status = CASE
+                            WHEN quantity - ? <= 0 THEN 'In Use'
+                            ELSE status
+                        END
+                    WHERE id = ? AND quantity >= ?
+                ");
+                $stmt->execute([
+                    $request['quantity'],
+                    $request['requester_office_id'],
+                    $request['quantity'],
+                    $request['asset_id'],
+                    $request['quantity']
+                ]);
+
+                if ($stmt->rowCount() === 0) {
+                    throw new Exception('Failed to update asset quantity');
+                }
+
+                // 3. Update request status to 'released'
+                $stmt = $pdo->prepare("
+                    UPDATE asset_requests
+                    SET status = 'released',
+                        released_date = NOW(),
+                        released_by = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$userId, $requestId]);
+
+                // 4. Log activity
+                logActivity($pdo, $request['asset_id'], 'ASSIGNED_TO_OFFICE',
+                    "Asset transferred to office '{$request['requester_office_name']}' via approved request #{$requestId}. Tag: {$tagNumber}");
+
+                // 5. Send notification
+                createNotification(
+                    $pdo,
+                    $request['requester_id'],
+                    'request_approved',
+                    'Asset Transfer Completed',
+                    "Your request has been approved and the asset has been transferred to your office. Inventory tag: {$tagNumber}. Please verify receipt on your dashboard.",
+                    [
+                        'related_type' => 'request',
+                        'related_id' => $requestId,
+                        'priority' => 'high',
+                        'action_url' => '/AMS-REQ/office/office_dashboard.php'
+                    ]
+                );
+
+                $pdo->commit();
+
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Asset released and transferred successfully',
+                    'tagNumber' => $tagNumber,
+                    'officeName' => $request['requester_office_name'],
+                    'tagId' => $tagId
+                ]);
+
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                throw $e;
+            }
+            break;
+
+        case 'generate_tag_for_office_request':
+            if (!hasRole('custodian') && !hasRole('admin')) {
+                throw new Exception('Only custodians and admins can generate inventory tags');
+            }
+
+            $requestId = (int)($_POST['request_id'] ?? 0);
+            $tagNumber = trim($_POST['tag_number'] ?? '');
+            $remarks = trim($_POST['remarks'] ?? '');
+
+            if (!$requestId || !$tagNumber) {
+                throw new Exception('Request ID and tag number are required');
+            }
+
+            // Get request details
+            $stmt = $pdo->prepare("
+                SELECT ar.*,
+                       a.asset_name,
+                       u.full_name as requester_name,
+                       u.email as requester_email,
+                       o.office_name as requester_office_name
+                FROM asset_requests ar
+                JOIN assets a ON ar.asset_id = a.id
+                JOIN users u ON ar.requester_id = u.id
+                LEFT JOIN offices o ON ar.requester_office_id = o.id
+                WHERE ar.id = ?
+            ");
+            $stmt->execute([$requestId]);
+            $request = $stmt->fetch();
+
+            if (!$request) {
+                throw new Exception('Request not found');
+            }
+
+            if ($request['status'] !== 'approved') {
+                throw new Exception('Request must be approved before generating tag. Current status: ' . $request['status']);
+            }
+
+            if (!$request['requester_office_id']) {
+                throw new Exception('This is not an office transfer request');
+            }
+
+            // Check if tag number already exists
+            $stmt = $pdo->prepare("SELECT id FROM inventory_tags WHERE tag_number = ?");
+            $stmt->execute([$tagNumber]);
+            if ($stmt->fetch()) {
+                throw new Exception('Tag number already exists. Please use a different tag number.');
+            }
+
+            // Begin transaction
+            $pdo->beginTransaction();
+
+            try {
+                // 1. Create inventory tag
+                $stmt = $pdo->prepare("
+                    INSERT INTO inventory_tags
+                    (tag_number, asset_id, office_id, status, assigned_by_custodian_id,
+                     inventory_date, remarks, quantity, unit_price, total_value)
+                    VALUES (?, ?, ?, 'Pending Verification', ?, NOW(), ?, ?, 0, 0)
+                ");
+                $stmt->execute([
+                    $tagNumber,
+                    $request['asset_id'],
+                    $request['requester_office_id'],
+                    $userId,
+                    $remarks,
+                    $request['quantity']
+                ]);
+                $tagId = $pdo->lastInsertId();
+
+                // 2. Update asset: decrease quantity, assign to office
+                $stmt = $pdo->prepare("
+                    SELECT quantity FROM assets WHERE id = ?
+                ");
+                $stmt->execute([$request['asset_id']]);
+                $currentQuantity = $stmt->fetchColumn();
+
+                if ($currentQuantity < $request['quantity']) {
+                    throw new Exception('Insufficient asset quantity available');
+                }
+
+                $stmt = $pdo->prepare("
+                    UPDATE assets
+                    SET quantity = quantity - ?,
+                        assigned_to = ?,
+                        status = CASE
+                            WHEN quantity - ? <= 0 THEN 'In Use'
+                            ELSE status
+                        END
+                    WHERE id = ? AND quantity >= ?
+                ");
+                $stmt->execute([
+                    $request['quantity'],
+                    $request['requester_office_id'],
+                    $request['quantity'],
+                    $request['asset_id'],
+                    $request['quantity']
+                ]);
+
+                if ($stmt->rowCount() === 0) {
+                    throw new Exception('Failed to update asset quantity');
+                }
+
+                // 3. Update request status to 'released' (transferred)
+                $stmt = $pdo->prepare("
+                    UPDATE asset_requests
+                    SET status = 'released',
+                        released_date = NOW(),
+                        released_by = ?
+                    WHERE id = ?
+                ");
+                $stmt->execute([$userId, $requestId]);
+
+                // 4. Log activity
+                logActivity($pdo, $request['asset_id'], 'ASSIGNED_TO_OFFICE',
+                    "Asset transferred to office '{$request['requester_office_name']}' via approved request #{$requestId}. Tag: {$tagNumber}");
+
+                // 5. Create notification for office user
+                createNotification(
+                    $pdo,
+                    $request['requester_id'],
+                    'request_approved',
+                    'Asset Transfer Completed',
+                    "Your request has been approved and the asset has been transferred to your office. Inventory tag: {$tagNumber}. Please verify receipt on your dashboard.",
+                    [
+                        'related_type' => 'request',
+                        'related_id' => $requestId,
+                        'priority' => 'high',
+                        'action_url' => '/AMS-REQ/office/office_dashboard.php'
+                    ]
+                );
+
+                $pdo->commit();
+
+                echo json_encode([
+                    'success' => true,
+                    'message' => 'Inventory tag generated and asset transferred to office',
+                    'tag_id' => $tagId,
+                    'tag_number' => $tagNumber
+                ]);
+
+            } catch (Exception $e) {
+                $pdo->rollBack();
+                throw $e;
+            }
             break;
 
         default:

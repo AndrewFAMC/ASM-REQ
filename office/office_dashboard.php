@@ -321,6 +321,18 @@ try {
                     <i class="fas fa-history w-6"></i>
                     <span>Approval History</span>
                 </a>
+
+                <div class="border-t border-gray-700 my-2"></div>
+
+                <a href="request_from_custodian.php" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-md">
+                    <i class="fas fa-paper-plane w-6"></i>
+                    <span>Request from Custodian</span>
+                </a>
+
+                <a href="my_requests.php" class="flex items-center px-4 py-3 text-gray-300 hover:bg-gray-700 rounded-md">
+                    <i class="fas fa-clipboard-list w-6"></i>
+                    <span>My Requests</span>
+                </a>
             </nav>
         </div>
 

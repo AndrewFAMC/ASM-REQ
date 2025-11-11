@@ -231,12 +231,6 @@ $csrfToken = generateCSRFToken();
             <header class="flex items-center justify-between p-4 bg-white border-b border-gray-200">
                 <h1 class="text-xl font-semibold text-gray-800">Welcome, <?= htmlspecialchars($user['full_name']) ?></h1>
                 <div class="flex items-center space-x-4">
-                    <!-- Request Asset Button -->
-                    <a href="request_asset_new.php" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                        <i class="fas fa-plus-circle mr-2"></i>Request Asset
-                    </a>
-
-                   
                     <!-- Notification Bell -->
                     <?php include __DIR__ . '/../includes/notification_center.php'; ?>
 
@@ -350,7 +344,12 @@ $csrfToken = generateCSRFToken();
                 <!-- My Assets Tab -->
                 <div id="my-assets-tab" class="tab-content">
                     <div class="bg-white p-6 rounded-lg shadow-md">
-                        <h2 class="text-2xl font-semibold text-gray-800 mb-4">My Requested Assets</h2>
+                        <div class="flex items-center justify-between mb-4">
+                            <h2 class="text-2xl font-semibold text-gray-800">My Requested Assets</h2>
+                            <a href="request_asset_new.php" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors inline-flex items-center">
+                                <i class="fas fa-plus-circle mr-2"></i>Request Asset
+                            </a>
+                        </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full bg-white">
                                 <thead class="bg-gray-200 text-gray-600 uppercase text-sm leading-normal">

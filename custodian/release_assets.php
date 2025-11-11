@@ -30,8 +30,8 @@ $pendingReturnCount = 0;
 $overdueCount = 0;
 
 try {
-    // Count pending releases (approved but not yet released)
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'approved' AND campus_id = ?");
+    // Count pending releases (approved but not yet released) - only custodian requests
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'approved' AND campus_id = ? AND request_source = 'custodian'");
     $stmt->execute([$campusId]);
     $pendingReleaseCount = (int)$stmt->fetchColumn();
 
@@ -133,6 +133,12 @@ try {
 
                 <!-- Divider -->
                 <div class="border-t border-gray-700 my-2"></div>
+
+                <!-- Quick Scan Update -->
+                <a href="quick_scan_update.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-barcode-read w-6"></i>
+                    <span>Quick Scan Update</span>
+                </a>
 
                 <!-- Approve Requests -->
                 <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
@@ -277,6 +283,80 @@ try {
         </div>
     </div>
 
+    <!-- Printable Tag Modal -->
+    <div id="printableTagModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-md" id="printable-tag-content">
+            <!-- Header -->
+            <div class="p-4 border-b flex justify-between items-center print:hidden">
+                <h3 class="text-lg font-semibold">Inventory Tag</h3>
+                <div>
+                    <button onclick="window.print()" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg text-sm">
+                        <i class="fas fa-print mr-2"></i>Print
+                    </button>
+                    <button onclick="document.getElementById('printableTagModal').classList.add('hidden')" class="bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold py-2 px-4 rounded-lg text-sm">
+                        Close
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tag Content -->
+            <div class="p-4 border-2 border-dashed border-gray-400 m-4" id="tag-to-print">
+                <div class="flex justify-between items-start mb-2">
+                    <div>
+                        <img src="../logo/1.png" alt="HCC Logo" class="h-12 w-12">
+                    </div>
+                    <div class="text-right">
+                        <h4 class="font-bold text-xl">HOLY CROSS COLLEGES</h4>
+                        <p class="text-sm" id="pt_campus_name">Sta. Rosa, Nueva Ecija</p>
+                    </div>
+                </div>
+
+                <div class="text-center mb-3">
+                    <h5 class="font-bold text-2xl" id="pt_asset_name">Asset Name</h5>
+                    <p class="text-base" id="pt_office_name">Office Name</p>
+                </div>
+
+                <div class="grid grid-cols-5 gap-3">
+                    <div class="col-span-3 space-y-1 text-sm">
+                        <p><strong>Tag No:</strong> <span id="pt_tag_number" class="font-mono"></span></p>
+                        <p><strong>Article:</strong> <span id="pt_article"></span></p>
+                        <p><strong>Date Acquired:</strong> <span id="pt_inventory_date"></span></p>
+                        <p><strong>Price:</strong> <span id="pt_price"></span></p>
+                        <p><strong>Remarks:</strong> <span id="pt_remarks"></span></p>
+                    </div>
+                    <div class="col-span-2 flex flex-col items-center justify-center">
+                        <div id="pt_qr_code" class="mb-2"></div>
+                    </div>
+                </div>
+
+                <div class="mt-4 text-center">
+                    <svg id="pt_barcode"></svg>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Include QRCode and JsBarcode libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
+
+    <style>
+        @media print {
+            body * {
+                visibility: hidden;
+            }
+            #tag-to-print, #tag-to-print * {
+                visibility: visible;
+            }
+            #tag-to-print {
+                position: absolute;
+                left: 0;
+                top: 0;
+                width: 100%;
+            }
+        }
+    </style>
+
     <script>
     class ReleaseManager {
         constructor() {
@@ -297,7 +377,7 @@ try {
 
         async loadRequests() {
             try {
-                const response = await fetch('../api/requests.php?action=get_pending_requests');
+                const response = await fetch('../api/requests.php?action=get_pending_requests&status=approved,released&request_source=custodian');
                 const data = await response.json();
 
                 if (data.success) {
@@ -359,8 +439,11 @@ try {
         }
 
         renderRequestCard(request) {
+            const isOfficeTransfer = request.requester_office_id != null;
             const statusBadges = {
-                'approved': '<span class="badge badge-approved">Ready to Release</span>',
+                'approved': isOfficeTransfer
+                    ? '<span class="badge badge-approved"><i class="fas fa-building mr-1"></i>Ready to Transfer</span>'
+                    : '<span class="badge badge-approved">Ready to Release</span>',
                 'released': '<span class="badge badge-released">Released</span>'
             };
 
@@ -374,9 +457,11 @@ try {
                                 <div>
                                     <h3 class="text-lg font-semibold text-gray-900">
                                         ${this.escapeHtml(request.asset_name)}
+                                        ${isOfficeTransfer ? '<span class="ml-2 inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-purple-100 text-purple-800"><i class="fas fa-building mr-1"></i>Office Transfer</span>' : ''}
                                     </h3>
                                     <p class="text-sm text-gray-600">
                                         Requester: ${this.escapeHtml(request.requester_name)}
+                                        ${isOfficeTransfer && request.requester_office_name ? `<span class="text-purple-600 font-semibold">(${this.escapeHtml(request.requester_office_name)})</span>` : ''}
                                         <span class="mx-2">•</span>
                                         Requested: ${new Date(request.request_date).toLocaleDateString()}
                                     </p>
@@ -384,15 +469,31 @@ try {
                                 ${statusBadges[request.status]}
                             </div>
 
+                            ${isOfficeTransfer ? `
+                                <div class="bg-purple-50 border border-purple-200 rounded p-3 mb-4">
+                                    <p class="text-sm text-purple-900">
+                                        <i class="fas fa-info-circle mr-2"></i>
+                                        <strong>Permanent Transfer:</strong> This asset will be assigned to ${this.escapeHtml(request.requester_office_name || 'the office')} via inventory tag.
+                                    </p>
+                                </div>
+                            ` : ''}
+
                             <div class="grid grid-cols-2 gap-4 mb-4">
                                 <div>
                                     <p class="text-xs text-gray-500">Quantity</p>
                                     <p class="text-sm font-semibold text-gray-900">${request.quantity}</p>
                                 </div>
-                                <div>
-                                    <p class="text-xs text-gray-500">Expected Return</p>
-                                    <p class="text-sm font-semibold text-gray-900">${new Date(request.expected_return_date).toLocaleDateString()}</p>
-                                </div>
+                                ${!isOfficeTransfer && request.expected_return_date ? `
+                                    <div>
+                                        <p class="text-xs text-gray-500">Expected Return</p>
+                                        <p class="text-sm font-semibold text-gray-900">${new Date(request.expected_return_date).toLocaleDateString()}</p>
+                                    </div>
+                                ` : `
+                                    <div>
+                                        <p class="text-xs text-gray-500">Transfer Type</p>
+                                        <p class="text-sm font-semibold text-purple-900">Permanent (No Return)</p>
+                                    </div>
+                                `}
                             </div>
 
                             <div class="mb-4">
@@ -416,7 +517,7 @@ try {
                                 <i class="fas fa-eye mr-2"></i>View Details
                             </button>
                             ${canRelease ? `
-                                <button onclick="releaseManager.releaseAsset(${request.id})"
+                                <button onclick="releaseManager.${isOfficeTransfer ? 'generateTagForOffice' : 'releaseAsset'}(${request.id})"
                                         class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm whitespace-nowrap">
                                     <i class="fas fa-hand-holding mr-2"></i>Release Asset
                                 </button>
@@ -553,6 +654,123 @@ try {
             } catch (error) {
                 console.error('Error releasing asset:', error);
                 Swal.fire('Error', error.message, 'error');
+            }
+        }
+
+        async generateTagForOffice(requestId) {
+            // Simple confirmation - no modal, auto-generate tag
+            const result = await Swal.fire({
+                title: 'Release & Transfer Asset',
+                text: 'This will automatically generate an inventory tag and transfer the asset to the requesting office.',
+                icon: 'question',
+                showCancelButton: true,
+                confirmButtonText: 'Yes, Release Asset',
+                confirmButtonColor: '#059669',
+                cancelButtonText: 'Cancel'
+            });
+
+            if (!result.isConfirmed) return;
+
+            try {
+                // Show loading
+                Swal.fire({
+                    title: 'Processing...',
+                    text: 'Generating tag and transferring asset',
+                    allowOutsideClick: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+
+                // Auto-generate and transfer
+                const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+                const response = await fetch('../api/requests.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'auto_generate_tag_and_transfer',
+                        request_id: requestId,
+                        csrf_token: csrfToken
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // Close loading and show success briefly
+                    await Swal.fire({
+                        icon: 'success',
+                        title: 'Transfer Complete!',
+                        html: `
+                            <div class="text-left">
+                                <p class="mb-2"><i class="fas fa-tag text-green-600 mr-2"></i>Tag Generated: <strong>${data.tagNumber}</strong></p>
+                                <p class="mb-2"><i class="fas fa-building text-purple-600 mr-2"></i>Transferred to: <strong>${data.officeName}</strong></p>
+                            </div>
+                        `,
+                        timer: 1500,
+                        showConfirmButton: false
+                    });
+
+                    this.closeModal();
+                    await this.loadRequests();
+
+                    // Automatically show printable tag
+                    if (data.tagId) {
+                        this.showPrintableTag(data.tagId);
+                    }
+                } else {
+                    throw new Error(data.message || 'Failed to generate tag and transfer');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                Swal.fire('Error', error.message, 'error');
+            }
+        }
+
+        async showPrintableTag(tagId) {
+            try {
+                // Fetch tag details
+                const response = await fetch(`../api/inventory_tags.php?action=get_tag_details&tag_id=${tagId}`);
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error('Failed to load tag details');
+                }
+
+                const tag = data.tag;
+
+                // Populate printable tag modal
+                document.getElementById('pt_campus_name').textContent = tag.campus_name || 'Sta. Rosa, Nueva Ecija';
+                document.getElementById('pt_asset_name').textContent = tag.asset_name || '';
+                document.getElementById('pt_office_name').textContent = tag.office_name || '';
+                document.getElementById('pt_tag_number').textContent = tag.tag_number || '';
+                document.getElementById('pt_article').textContent = tag.article || 'chair';
+                document.getElementById('pt_inventory_date').textContent = tag.inventory_date || new Date().toLocaleDateString();
+                document.getElementById('pt_price').textContent = tag.unit_price ? `₱${parseFloat(tag.unit_price).toFixed(2)}` : '₱0.00';
+                document.getElementById('pt_remarks').textContent = tag.remarks || 'WORKING';
+
+                // Generate QR code
+                const qrContainer = document.getElementById('pt_qr_code');
+                qrContainer.innerHTML = '';
+                new QRCode(qrContainer, {
+                    text: `${window.location.origin}/AMS-REQ/asset_lookup.php?tag=${tag.tag_number}`,
+                    width: 128,
+                    height: 128
+                });
+
+                // Generate barcode
+                JsBarcode("#pt_barcode", tag.tag_number, {
+                    format: "CODE128",
+                    width: 2,
+                    height: 50,
+                    displayValue: true
+                });
+
+                // Show the modal
+                document.getElementById('printableTagModal').classList.remove('hidden');
+            } catch (error) {
+                console.error('Error loading tag:', error);
+                Swal.fire('Error', 'Failed to load printable tag', 'error');
             }
         }
 

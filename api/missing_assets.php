@@ -19,8 +19,14 @@ if (!isLoggedIn()) {
 $user = getUserInfo();
 $campusId = $user['campus_id'];
 
-// Determine action
+// Determine action - handle both GET and JSON POST
 $action = $_GET['action'] ?? $_POST['action'] ?? '';
+
+// If no action found in GET/POST, check JSON body
+if (empty($action) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $input = json_decode(file_get_contents('php://input'), true);
+    $action = $input['action'] ?? '';
+}
 
 try {
     switch ($action) {
@@ -233,7 +239,7 @@ function updateReportStatus($pdo, $user) {
 
     // Get current report
     $stmt = $pdo->prepare("
-        SELECT mar.*, a.asset_name, a.asset_code, a.asset_id
+        SELECT mar.*, a.asset_name, COALESCE(a.barcode, a.serial_number, CONCAT('ID-', a.id)) as asset_code, a.id as asset_id
         FROM missing_assets_reports mar
         JOIN assets a ON mar.asset_id = a.id
         WHERE mar.id = ? AND mar.campus_id = ?

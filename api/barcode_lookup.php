@@ -31,8 +31,8 @@ try {
             cam.campus_name,
             o.office_name,
             b.building_name,
-            r.room_number,
-            br.brand_name
+            r.room_name,
+            br.name as brand_name
         FROM assets a
         LEFT JOIN categories c ON a.category_id = c.id
         LEFT JOIN campuses cam ON a.campus_id = cam.id
@@ -126,8 +126,7 @@ try {
         SELECT
             ar.*,
             u.full_name as requester_name,
-            u.email as requester_email,
-            u.phone as requester_phone
+            u.email as requester_email
         FROM asset_requests ar
         JOIN users u ON ar.requester_id = u.id
         WHERE ar.asset_id = ?
@@ -217,7 +216,7 @@ try {
             'purchase_date' => $asset['purchase_date'],
             'location' => $asset['location'],
             'office' => $asset['office_name'],
-            'room' => $asset['room_number'],
+            'room' => $asset['room_name'],
             'building' => $asset['building_name'],
             'campus' => $asset['campus_name'],
             'assigned_to' => $asset['assigned_to'],

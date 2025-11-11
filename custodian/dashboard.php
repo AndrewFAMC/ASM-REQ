@@ -35,8 +35,8 @@ $pendingReturnCount = 0;
 $overdueCount = 0;
 
 try {
-    // Count pending releases (approved but not yet released)
-    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'approved' AND campus_id = ?");
+    // Count pending releases (approved but not yet released) - only custodian requests
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'approved' AND campus_id = ? AND request_source = 'custodian'");
     $stmt->execute([$campusId]);
     $pendingReleaseCount = (int)$stmt->fetchColumn();
 
@@ -422,6 +422,12 @@ $csrfToken = $_SESSION['csrf_token'];
 
                 <!-- Divider -->
                 <div class="border-t border-gray-700 my-2"></div>
+
+                <!-- Quick Scan Update -->
+                <a href="quick_scan_update.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-barcode-read w-6"></i>
+                    <span>Quick Scan Update</span>
+                </a>
 
                 <!-- Approve Requests -->
                 <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
@@ -1095,6 +1101,9 @@ document.addEventListener('DOMContentLoaded', function() {
                                     <p class="font-semibold">${asset.asset_name}</p>
                                     <p class="text-xs text-gray-500">Tag: ${asset.tag_number} | Status: <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full ${statusClass}">${asset.status}</span></p>
                                 </div>
+                                <button onclick="openPrintableTagModal(${asset.id})" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-md text-sm flex items-center gap-1" title="Print Tag">
+                                    <i class="fas fa-print"></i> Print
+                                </button>
                             </div>`;
                         listContainer.innerHTML += item;
                     });
@@ -1420,7 +1429,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // --- Printable Tag Modal ---
     const printableTagModal = document.getElementById('printableTagModal');
 
-    async function openPrintableTagModal(tagId) {
+    window.openPrintableTagModal = async function(tagId) {
         const res = await apiRequest('dashboard.php', 'get_tag_details_for_print', { tag_id: tagId });
         if (res.success) {
             const tag = res.data;

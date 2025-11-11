@@ -108,6 +108,12 @@ try {
                 <!-- Divider -->
                 <div class="border-t border-gray-700 my-2"></div>
 
+                <!-- Quick Scan Update -->
+                <a href="quick_scan_update.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-barcode-read w-6"></i>
+                    <span>Quick Scan Update</span>
+                </a>
+
                 <!-- Approve Requests -->
                 <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
                     <i class="fas fa-check-circle w-6"></i>

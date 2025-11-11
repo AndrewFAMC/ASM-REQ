@@ -135,9 +135,18 @@ $csrfToken = generateCSRFToken();
                 <a href="dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
                     <i class="fas fa-home w-6"></i><span>Dashboard</span>
                 </a>
+                <a href="dashboard.php" onclick="showTab('offices')" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-building w-6"></i><span>Offices</span>
+                </a>
 
                 <!-- Divider -->
                 <div class="border-t border-gray-700 my-2"></div>
+
+                <!-- Quick Scan Update -->
+                <a href="quick_scan_update.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                    <i class="fas fa-barcode-read w-6"></i>
+                    <span>Quick Scan Update</span>
+                </a>
 
                 <!-- Approve Requests -->
                 <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
