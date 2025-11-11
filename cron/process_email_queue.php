@@ -8,17 +8,22 @@
  * Usage:
  *   - Run continuously: php process_email_queue.php
  *   - Run via cron: * * * * * php /path/to/process_email_queue.php
+ *
+ * REFACTORED: Now uses the new centralized email system
  */
 
 require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/../includes/email/EmailConfig.php';
+require_once __DIR__ . '/../includes/email/EmailQueue.php';
+require_once __DIR__ . '/../includes/email/EmailSender.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
-// Configuration
-$batchSize = 10;           // Process 10 emails at a time
-$sleepDuration = 30;       // Sleep for 30 seconds between batches
-$maxAttempts = 3;          // Maximum retry attempts
+// Configuration from EmailConfig
+$batchSize = EmailConfig::$queue_batch_size;
+$sleepDuration = EmailConfig::$queue_sleep_duration;
+$maxAttempts = EmailConfig::$queue_max_attempts;
 
 echo "=== Email Queue Worker Started ===\n";
 echo "Batch Size: {$batchSize}\n";
@@ -26,28 +31,15 @@ echo "Sleep Duration: {$sleepDuration}s\n";
 echo "Max Attempts: {$maxAttempts}\n";
 echo str_repeat('-', 60) . "\n\n";
 
+// Initialize queue and sender
+$queue = new EmailQueue($pdo);
+$sender = new EmailSender($pdo);
+
 // Main processing loop
 while (true) {
     try {
-        // Fetch pending emails that are ready to be sent
-        $stmt = $pdo->prepare("
-            SELECT id, recipient_email, recipient_name, subject, body_html,
-                   attempts, priority, related_type, related_id
-            FROM email_queue
-            WHERE status = 'pending'
-              AND attempts < max_attempts
-              AND (next_retry_at IS NULL OR next_retry_at <= NOW())
-            ORDER BY
-                CASE priority
-                    WHEN 'high' THEN 1
-                    WHEN 'normal' THEN 2
-                    WHEN 'low' THEN 3
-                END,
-                created_at ASC
-            LIMIT ?
-        ");
-        $stmt->execute([$batchSize]);
-        $emails = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        // Fetch pending emails
+        $emails = $queue->getPending($batchSize);
 
         if (empty($emails)) {
             echo "[" . date('Y-m-d H:i:s') . "] No emails to process. Sleeping...\n";
@@ -62,55 +54,29 @@ while (true) {
             $recipientEmail = $email['recipient_email'];
 
             try {
-                // Send the email
-                $sent = sendEmailFromQueue($pdo, $email);
+                // Send the email using new EmailSender
+                $sent = $sender->sendFromQueue($email);
 
                 if ($sent) {
                     // Mark as sent
-                    $updateStmt = $pdo->prepare("
-                        UPDATE email_queue
-                        SET status = 'sent',
-                            sent_at = NOW(),
-                            error_message = NULL
-                        WHERE id = ?
-                    ");
-                    $updateStmt->execute([$emailId]);
-
+                    $queue->markSent($emailId);
                     echo "  ✓ Sent to {$recipientEmail} (ID: {$emailId})\n";
                 } else {
                     throw new Exception("Email sending failed");
                 }
 
             } catch (Exception $e) {
-                // Increment attempts and calculate next retry time
+                // Increment attempts and schedule retry
                 $attempts = $email['attempts'] + 1;
                 $errorMessage = $e->getMessage();
 
-                // Calculate exponential backoff: 5 min, 15 min, 1 hour
-                $retryDelays = [5, 15, 60]; // minutes
-                $nextRetryMinutes = $retryDelays[$attempts - 1] ?? 60;
-
-                $updateStmt = $pdo->prepare("
-                    UPDATE email_queue
-                    SET attempts = ?,
-                        error_message = ?,
-                        next_retry_at = DATE_ADD(NOW(), INTERVAL ? MINUTE),
-                        status = CASE WHEN ? >= max_attempts THEN 'failed' ELSE 'pending' END
-                    WHERE id = ?
-                ");
-                $updateStmt->execute([
-                    $attempts,
-                    $errorMessage,
-                    $nextRetryMinutes,
-                    $attempts,
-                    $emailId
-                ]);
+                $queue->markFailed($emailId, $errorMessage, $attempts);
 
                 if ($attempts >= $maxAttempts) {
                     echo "  ✗ FAILED (permanently) to {$recipientEmail} (ID: {$emailId}): {$errorMessage}\n";
-                    logActivity($pdo, null, 'EMAIL_PERMANENTLY_FAILED',
-                        "Email #{$emailId} to {$recipientEmail} failed after {$attempts} attempts: {$errorMessage}");
                 } else {
+                    $retryDelays = EmailConfig::$retry_delays;
+                    $nextRetryMinutes = $retryDelays[$attempts - 1] ?? $retryDelays[count($retryDelays) - 1];
                     echo "  ⚠ Retry {$attempts}/{$maxAttempts} for {$recipientEmail} (ID: {$emailId}): {$errorMessage}\n";
                     echo "    Next retry in {$nextRetryMinutes} minute(s)\n";
                 }
@@ -125,56 +91,3 @@ while (true) {
         sleep($sleepDuration);
     }
 }
-
-/**
- * Sends an email from the queue using PHPMailer
- */
-function sendEmailFromQueue($pdo, $emailData) {
-    $smtpUser = 'mico.macapugay2004@gmail.com';
-    $smtpPass = 'gggm gqng fjgt ukfe';
-
-    $mail = new PHPMailer(true);
-
-    try {
-        // Server Settings
-        $mail->isSMTP();
-        $mail->Host       = 'smtp.gmail.com';
-        $mail->SMTPAuth   = true;
-        $mail->Username   = $smtpUser;
-        $mail->Password   = $smtpPass;
-        $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = 587;
-
-        // Performance optimizations
-        $mail->SMTPKeepAlive = true;
-        $mail->Timeout = 10;
-        $mail->SMTPDebug = 0;
-
-        // Recipients
-        $mail->setFrom($smtpUser, 'HCC Asset Management System');
-        $mail->addAddress($emailData['recipient_email'], $emailData['recipient_name']);
-
-        // Content
-        $mail->isHTML(true);
-        $mail->Subject = $emailData['subject'];
-        $mail->Body = $emailData['body_html'];
-
-        $mail->send();
-
-        // Log success
-        logActivity(
-            $pdo,
-            null,
-            'EMAIL_SENT',
-            "Email sent to {$emailData['recipient_email']} - {$emailData['subject']}"
-        );
-
-        return true;
-
-    } catch (Exception $e) {
-        error_log("Failed to send queued email #{$emailData['id']}: {$mail->ErrorInfo}");
-        throw new Exception($mail->ErrorInfo);
-    }
-}
-
-?>

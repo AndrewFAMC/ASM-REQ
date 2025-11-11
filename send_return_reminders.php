@@ -1,16 +1,18 @@
 <?php
+/**
+ * Send Return Reminders - Cron Job
+ *
+ * This script should be run daily via a cron job.
+ * Sends reminders for assets that are due in 3 days or are overdue.
+ *
+ * Example cron job command:
+ * 0 8 * * * /usr/bin/php /path/to/your/project/send_return_reminders.php
+ *
+ * REFACTORED: Now uses the new centralized email system
+ */
 
-// This script should be run daily via a cron job.
-// Example cron job command:
-// 0 8 * * * /usr/bin/php /path/to/your/project/cron_jobs/send_return_reminders.php
-
-require_once __DIR__ . '/../config.php';
-require_once __DIR__ . '/../vendor/phpmailer/phpmailer/src/PHPMailer.php';
-require_once __DIR__ . '/../vendor/phpmailer/phpmailer/src/SMTP.php';
-require_once __DIR__ . '/../vendor/phpmailer/phpmailer/src/Exception.php';
-
-use PHPMailer\PHPMailer\PHPMailer;
-use PHPMailer\PHPMailer\Exception;
+require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/includes/email/Email.php';
 
 function sendReturnReminders($pdo) {
     echo "Starting return reminder process...\n";
@@ -19,7 +21,7 @@ function sendReturnReminders($pdo) {
     $reminder_days = 3;
     $due_date = date('Y-m-d', strtotime("+$reminder_days days"));
 
-    $sql = "SELECT 
+    $sql = "SELECT
                 ar.id, ar.expected_return_date,
                 a.asset_name, a.serial_number,
                 u_staff.full_name as staff_name, u_staff.email as staff_email,
@@ -34,7 +36,7 @@ function sendReturnReminders($pdo) {
             LEFT JOIN users u_custodian ON u_custodian.campus_id = a.campus_id AND u_custodian.role = 'custodian'
             -- Find an admin for the campus
             LEFT JOIN users u_admin ON u_admin.campus_id = a.campus_id AND u_admin.role = 'admin'
-            WHERE ar.status = 'released' 
+            WHERE ar.status = 'released'
               AND (ar.expected_return_date <= ? OR ar.expected_return_date < CURDATE())
               AND ar.reminder_sent = 0"; // Only send once
 
@@ -47,66 +49,77 @@ function sendReturnReminders($pdo) {
 
     echo "Found " . count($requests) . " assets to send reminders for.\n";
 
+    // Initialize Email system
+    $email = new Email($pdo);
+
     foreach ($requests as $request) {
         $days_until_due = (new DateTime())->diff(new DateTime($request['expected_return_date']))->days;
         $is_overdue = new DateTime() > new DateTime($request['expected_return_date']);
 
-        $subject = $is_overdue 
-            ? "Overdue Asset Return: {$request['asset_name']}"
-            : "Asset Return Reminder: {$request['asset_name']} due in {$days_until_due} days";
-
-        $body = "
-            <p>Dear {$request['staff_name']},</p>
-            <p>This is a reminder that the asset <strong>{$request['asset_name']}</strong> (S/N: {$request['serial_number']}) is due to be returned on <strong>" . date('F j, Y', strtotime($request['expected_return_date'])) . "</strong>.</p>";
-        
+        // Determine urgency level
+        $urgency = 'upcoming';
         if ($is_overdue) {
-            $body .= "<p style='color:red;'><strong>This asset is now overdue.</strong> Please return it to the custodian at the {$request['campus_name']} campus as soon as possible.</p>";
-        } else {
-            $body .= "<p>Please ensure the asset is returned to the custodian at the {$request['campus_name']} campus by the due date.</p>";
-        }
+            // Send overdue alert instead
+            $days_overdue = abs($days_until_due);
 
-        $body .= "<p>Thank you,<br>HCC Asset Management System</p>";
-
-        // Collect recipients
-        $recipients = [];
-        if (!empty($request['staff_email'])) $recipients[] = $request['staff_email'];
-        if (!empty($request['custodian_email'])) $recipients[] = $request['custodian_email'];
-        if (!empty($request['admin_email'])) $recipients[] = $request['admin_email'];
-        
-        $unique_recipients = array_unique($recipients);
-
-        try {
-            $mail = new PHPMailer(true);
-            // Server settings from your config.php or environment
-            $mail->isSMTP();
-            $mail->Host       = 'smtp.gmail.com';
-            $mail->SMTPAuth   = true;
-            $mail->Username   = 'your-email@gmail.com'; // Replace with your app-specific password
-            $mail->Password   = 'your-app-password';    // Replace with your app-specific password
-            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-            $mail->Port       = 587;
-
-            //Recipients
-            $mail->setFrom('no-reply@hcc.edu.ph', 'HCC Asset Management');
-            foreach ($unique_recipients as $recipient_email) {
-                $mail->addAddress($recipient_email);
+            // Collect recipients
+            $recipients = [];
+            if (!empty($request['staff_email'])) {
+                $recipients[] = ['email' => $request['staff_email'], 'name' => $request['staff_name'], 'role' => 'borrower'];
+            }
+            if (!empty($request['custodian_email'])) {
+                $recipients[] = ['email' => $request['custodian_email'], 'name' => $request['custodian_name'], 'role' => 'custodian'];
+            }
+            if (!empty($request['admin_email'])) {
+                $recipients[] = ['email' => $request['admin_email'], 'name' => $request['admin_name'], 'role' => 'admin'];
             }
 
-            // Content
-            $mail->isHTML(true);
-            $mail->Subject = $subject;
-            $mail->Body    = $body;
+            // Send overdue alerts
+            foreach ($recipients as $recipient) {
+                $email->sendOverdueAlert(
+                    $recipient['email'],
+                    $recipient['name'],
+                    $request['asset_name'],
+                    $request['expected_return_date'],
+                    $days_overdue,
+                    $request['id'],
+                    $recipient['role']
+                );
+            }
 
-            $mail->send();
-            echo "Reminder sent for request ID {$request['id']}.\n";
+            echo "Overdue alert queued for request ID {$request['id']} ({$days_overdue} days overdue).\n";
 
-            // Mark as sent to prevent duplicate emails
-            executeQuery($pdo, "UPDATE asset_requests SET reminder_sent = 1 WHERE id = ?", [$request['id']]);
+        } else {
+            // Send return reminder
+            if ($days_until_due == 0) {
+                $urgency = 'today';
+            } elseif ($days_until_due == 1) {
+                $urgency = 'urgent';
+            } elseif ($days_until_due >= 7) {
+                $urgency = 'advance_notice';
+            } else {
+                $urgency = 'upcoming';
+            }
 
-        } catch (Exception $e) {
-            echo "Message could not be sent for request ID {$request['id']}. Mailer Error: {$mail->ErrorInfo}\n";
+            // Send to borrower
+            if (!empty($request['staff_email'])) {
+                $email->sendReturnReminder(
+                    $request['staff_email'],
+                    $request['staff_name'],
+                    $request['asset_name'],
+                    $request['expected_return_date'],
+                    $days_until_due,
+                    $request['id'],
+                    $urgency
+                );
+                echo "Return reminder queued for request ID {$request['id']} (due in {$days_until_due} days).\n";
+            }
         }
+
+        // Mark as sent to prevent duplicate emails
+        executeQuery($pdo, "UPDATE asset_requests SET reminder_sent = 1 WHERE id = ?", [$request['id']]);
     }
+
     echo "Reminder process finished.\n";
 }
 
