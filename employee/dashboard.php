@@ -366,6 +366,7 @@ $csrfToken = generateCSRFToken();
                                         <th class="py-3 px-6 text-center">Expected Return</th>
                                         <th class="py-3 px-6 text-center">Status</th>
                                         <th class="py-3 px-6 text-left">Purpose</th>
+                                        <th class="py-3 px-6 text-center">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody id="my-assets-tbody" class="text-gray-600 text-sm font-light">
@@ -450,6 +451,120 @@ $csrfToken = generateCSRFToken();
     </div>
 </div>
 
+<!-- Report Missing Asset Modal -->
+<div id="reportMissingModal" class="fixed inset-0 bg-black bg-opacity-50 hidden z-50 flex items-center justify-center overflow-y-auto">
+    <div class="bg-white rounded-lg shadow-xl p-6 w-full max-w-2xl m-4 max-h-screen overflow-y-auto">
+        <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center">
+                <i class="fas fa-exclamation-triangle text-red-500 text-2xl mr-3"></i>
+                <h3 class="text-xl font-semibold text-red-900">Report Missing Asset</h3>
+            </div>
+            <button onclick="closeReportMissingModal()" class="text-gray-400 hover:text-gray-600">
+                <i class="fas fa-times text-xl"></i>
+            </button>
+        </div>
+
+        <div id="assetInfoDisplay" class="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+            <h4 class="font-semibold text-blue-900 mb-2">Asset Information</h4>
+            <div class="grid grid-cols-2 gap-2 text-sm">
+                <div>
+                    <span class="text-gray-600">Asset:</span>
+                    <span id="modal_asset_name" class="font-medium text-gray-900 ml-2">-</span>
+                </div>
+                <div>
+                    <span class="text-gray-600">Category:</span>
+                    <span id="modal_asset_category" class="font-medium text-gray-900 ml-2">-</span>
+                </div>
+            </div>
+        </div>
+
+        <form id="reportMissingForm" class="space-y-4">
+            <input type="hidden" id="missing_asset_id" name="asset_id">
+            <input type="hidden" name="csrf_token" value="<?= $_SESSION['csrf_token'] ?>">
+
+            <!-- Last Seen Date -->
+            <div>
+                <label for="last_seen_date" class="block text-sm font-medium text-gray-700 mb-1">
+                    <i class="fas fa-calendar text-gray-500 mr-1"></i>
+                    When did you last see this asset? *
+                </label>
+                <input type="date" id="last_seen_date" name="last_seen_date" required
+                       max="<?= date('Y-m-d') ?>"
+                       value="<?= date('Y-m-d') ?>"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent">
+            </div>
+
+            <!-- Last Known Location -->
+            <div>
+                <label for="last_known_location" class="block text-sm font-medium text-gray-700 mb-1">
+                    <i class="fas fa-map-marker-alt text-gray-500 mr-1"></i>
+                    Last Known Location *
+                </label>
+                <input type="text" id="last_known_location" name="last_known_location" required
+                       placeholder="e.g., Room 205, Library, Main Office"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent">
+            </div>
+
+            <!-- Last Known Borrower -->
+            <div>
+                <label for="last_known_borrower" class="block text-sm font-medium text-gray-700 mb-1">
+                    <i class="fas fa-user text-gray-500 mr-1"></i>
+                    Last Known Borrower/User (if known)
+                </label>
+                <input type="text" id="last_known_borrower" name="last_known_borrower"
+                       placeholder="e.g., John Doe"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent">
+            </div>
+
+            <!-- Contact Information -->
+            <div>
+                <label for="last_known_borrower_contact" class="block text-sm font-medium text-gray-700 mb-1">
+                    <i class="fas fa-phone text-gray-500 mr-1"></i>
+                    Contact Number (if available)
+                </label>
+                <input type="text" id="last_known_borrower_contact" name="last_known_borrower_contact"
+                       placeholder="e.g., 09XX-XXX-XXXX"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent">
+            </div>
+
+            <!-- Department -->
+            <div>
+                <label for="responsible_department" class="block text-sm font-medium text-gray-700 mb-1">
+                    <i class="fas fa-building text-gray-500 mr-1"></i>
+                    Department/Office Last Associated With
+                </label>
+                <input type="text" id="responsible_department" name="responsible_department"
+                       placeholder="e.g., IT Department"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent">
+            </div>
+
+            <!-- Description -->
+            <div>
+                <label for="description" class="block text-sm font-medium text-gray-700 mb-1">
+                    <i class="fas fa-align-left text-gray-500 mr-1"></i>
+                    Detailed Description *
+                </label>
+                <textarea id="description" name="description" rows="4" required
+                          placeholder="Please provide details: What happened? How was it discovered? Any other relevant information?"
+                          class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"></textarea>
+                <p class="text-xs text-gray-500 mt-1">Be as detailed as possible to help with the investigation</p>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                <button type="button" onclick="closeReportMissingModal()"
+                        class="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-800 font-bold rounded-lg">
+                    <i class="fas fa-times mr-1"></i>Cancel
+                </button>
+                <button type="submit"
+                        class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-bold rounded-lg">
+                    <i class="fas fa-exclamation-triangle mr-1"></i>Submit Report
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     window.csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
@@ -484,7 +599,7 @@ document.addEventListener('DOMContentLoaded', function() {
             document.getElementById('stat-total-assets').textContent = res.data.length;
 
             if (res.data.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="7" class="text-center py-4">You have no asset requests.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="8" class="text-center py-4">You have no asset requests.</td></tr>';
                 return;
             }
             res.data.forEach(request => {
@@ -492,6 +607,16 @@ document.addEventListener('DOMContentLoaded', function() {
                 const requestDate = new Date(request.request_date).toLocaleDateString();
                 const returnDate = request.expected_return_date ? new Date(request.expected_return_date).toLocaleDateString() : 'N/A';
                 const purpose = request.purpose || 'N/A';
+
+                // Only show report missing button for released assets (assets currently with the employee)
+                let actionButton = '';
+                if (request.status && request.status.toLowerCase() === 'released') {
+                    actionButton = `
+                        <button onclick="openReportMissingModal(${request.asset_id}, '${request.asset_name.replace(/'/g, "\\'")}', '${request.category_name.replace(/'/g, "\\'")}')"
+                                class="bg-red-500 hover:bg-red-600 text-white text-xs font-bold py-1 px-3 rounded inline-flex items-center">
+                            <i class="fas fa-exclamation-triangle mr-1"></i>Report Missing
+                        </button>`;
+                }
 
                 const row = `
                     <tr class="border-b border-gray-200 hover:bg-gray-100">
@@ -502,11 +627,14 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td class="py-3 px-6 text-center">${returnDate}</td>
                         <td class="py-3 px-6 text-center">
                             <span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full ${statusClass}">
-                                ${request.status}
+                                ${request.status || 'N/A'}
                             </span>
                         </td>
                         <td class="py-3 px-6 text-left">
                             <span class="text-xs" title="${purpose}">${purpose.length > 30 ? purpose.substring(0, 30) + '...' : purpose}</span>
+                        </td>
+                        <td class="py-3 px-6 text-center">
+                            ${actionButton}
                         </td>
                     </tr>`;
                 tbody.innerHTML += row;
@@ -700,6 +828,108 @@ document.addEventListener('DOMContentLoaded', function() {
             default: return 'text-gray-600 bg-gray-200';
         }
     }
+
+    // --- Report Missing Modal Functions ---
+    const reportMissingModal = document.getElementById('reportMissingModal');
+
+    window.openReportMissingModal = function(assetId, assetName, category) {
+        document.getElementById('missing_asset_id').value = assetId;
+        document.getElementById('modal_asset_name').textContent = assetName;
+        document.getElementById('modal_asset_category').textContent = category;
+
+        // Reset form
+        document.getElementById('reportMissingForm').reset();
+        document.getElementById('missing_asset_id').value = assetId; // Re-set after reset
+        document.getElementById('last_seen_date').value = '<?= date('Y-m-d') ?>';
+
+        reportMissingModal.classList.remove('hidden');
+    }
+
+    window.closeReportMissingModal = function() {
+        reportMissingModal.classList.add('hidden');
+        document.getElementById('reportMissingForm').reset();
+    }
+
+    // Report Missing Form Submission
+    document.getElementById('reportMissingForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+
+        const formData = new FormData(this);
+        const submitButton = this.querySelector('button[type="submit"]');
+        submitButton.disabled = true;
+        submitButton.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Submitting...';
+
+        try {
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+            const response = await fetch('../api/report_missing_asset.php', {
+                method: 'POST',
+                headers: {
+                    'X-CSRF-Token': window.csrfToken
+                },
+                body: formData,
+                signal: controller.signal
+            });
+
+            clearTimeout(timeout);
+
+            let result;
+            try {
+                const text = await response.text();
+                result = text ? JSON.parse(text) : null;
+            } catch (parseError) {
+                if (response.ok) {
+                    result = { success: true, report_id: 'N/A' };
+                } else {
+                    throw new Error('Failed to parse server response');
+                }
+            }
+
+            if (result && result.success) {
+                closeReportMissingModal();
+
+                await Swal.fire({
+                    icon: 'success',
+                    title: 'Report Submitted Successfully',
+                    html: `
+                        <p class="mb-2">Your missing asset report has been submitted.</p>
+                        ${result.report_id !== 'N/A' ? `<p class="text-sm text-gray-600">Report ID: #${result.report_id}</p>` : ''}
+                        <p class="text-sm text-gray-600">Custodians and administrators will be notified.</p>
+                    `,
+                    confirmButtonColor: '#dc2626'
+                });
+
+                // Reload the assets to reflect any changes
+                loadMyAssets();
+            } else {
+                throw new Error(result?.message || 'Failed to submit report');
+            }
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                await Swal.fire({
+                    icon: 'warning',
+                    title: 'Request Taking Longer Than Expected',
+                    html: `
+                        <p class="mb-2">Your report is being processed.</p>
+                        <p class="text-sm text-gray-600">Please check back to confirm.</p>
+                    `,
+                    confirmButtonColor: '#dc2626'
+                });
+                closeReportMissingModal();
+                loadMyAssets();
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Submission Failed',
+                    text: error.message,
+                    confirmButtonColor: '#dc2626'
+                });
+                submitButton.disabled = false;
+                submitButton.innerHTML = '<i class="fas fa-exclamation-triangle mr-1"></i>Submit Report';
+            }
+        }
+    });
 
     // Initial load
     showTab('my-assets');

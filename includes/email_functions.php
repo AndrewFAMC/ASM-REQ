@@ -1282,4 +1282,210 @@ function sendMissingAssetAlertEmail($pdo, $recipientEmail, $recipientName, $asse
         return false;
     }
 }
+
+/**
+ * Queues a missing asset alert email for asynchronous sending
+ * This function returns immediately, allowing the background worker to send the email
+ *
+ * @param PDO $pdo The PDO database connection object.
+ * @param string $recipientEmail The email address of the recipient.
+ * @param string $recipientName The full name of the recipient.
+ * @param string $assetName The name of the missing asset.
+ * @param string $assetCode The asset code/barcode.
+ * @param int $reportId The missing asset report ID.
+ * @param string $recipientRole The role of the recipient (reporter/custodian/admin).
+ * @param array $reportDetails Additional report details.
+ * @return bool True on success, false on failure.
+ */
+function queueMissingAssetAlertEmail($pdo, $recipientEmail, $recipientName, $assetName, $assetCode, $reportId, $recipientRole = 'custodian', $reportDetails = []) {
+    try {
+        // Configure role-specific messaging
+        $roleConfig = match($recipientRole) {
+            'reporter' => [
+                'title' => 'Missing Asset Report Confirmed',
+                'message' => "Your missing asset report has been received and logged in the system.",
+                'icon' => '✅',
+                'badge_color' => '#16a34a',
+                'badge_text' => 'Report Confirmed',
+                'action_text' => 'View Report Status',
+                'priority' => 'high' // Reporter gets confirmation fast
+            ],
+            'custodian' => [
+                'title' => 'URGENT: Asset Reported Missing',
+                'message' => "An asset under your campus has been reported as missing. Immediate investigation required.",
+                'icon' => '🚨',
+                'badge_color' => '#dc2626',
+                'badge_text' => 'Investigation Required',
+                'action_text' => 'Start Investigation',
+                'priority' => 'high' // Urgent for custodians
+            ],
+            'admin' => [
+                'title' => 'ALERT: Missing Asset Report',
+                'message' => "A missing asset has been reported. Please review and assign investigation.",
+                'icon' => '⚠️',
+                'badge_color' => '#ea580c',
+                'badge_text' => 'Admin Alert',
+                'action_text' => 'Review Report',
+                'priority' => 'normal' // Admins get informed but not urgent
+            ],
+            default => [
+                'title' => 'Missing Asset Notification',
+                'message' => "You are being notified about a missing asset report.",
+                'icon' => '📋',
+                'badge_color' => '#3b82f6',
+                'badge_text' => 'Notification',
+                'action_text' => 'View Details',
+                'priority' => 'normal'
+            ],
+        };
+
+        // Extract report details
+        $lastKnownLocation = $reportDetails['last_known_location'] ?? 'Unknown';
+        $lastKnownBorrower = $reportDetails['last_known_borrower'] ?? 'Not specified';
+        $lastSeenDate = isset($reportDetails['last_seen_date'])
+            ? date('F j, Y', strtotime($reportDetails['last_seen_date']))
+            : 'Unknown';
+        $reportedBy = $reportDetails['reported_by_name'] ?? 'Unknown';
+        $reportedDate = isset($reportDetails['reported_date'])
+            ? date('F j, Y g:i A', strtotime($reportDetails['reported_date']))
+            : date('F j, Y g:i A');
+        $description = $reportDetails['description'] ?? 'No description provided';
+
+        // Determine action URL based on role
+        $actionUrl = match($recipientRole) {
+            'reporter' => 'http://localhost/AMS-REQ/employee/my_requests.php',
+            'custodian' => 'http://localhost/AMS-REQ/custodian/missing_assets.php',
+            'admin' => 'http://localhost/AMS-REQ/custodian/missing_assets.php',
+            default => 'http://localhost/AMS-REQ/dashboard.php'
+        };
+
+        // Build the email HTML body
+        $emailBody = "
+            <!DOCTYPE html>
+            <html lang='en'>
+            <head>
+                <meta charset='UTF-8'>
+                <meta name='viewport' content='width=device-width, initial-scale=1.0'>
+                <title>{$roleConfig['title']}</title>
+                <link rel='preconnect' href='https://fonts.googleapis.com'>
+                <link rel='preconnect' href='https://fonts.gstatic.com' crossorigin>
+                <link href='https://fonts.googleapis.com/css2?family=Great+Vibes&display=swap' rel='stylesheet'>
+                <style>
+                    body { margin: 0; padding: 0; background-color: #f4f4f4; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; }
+                    .email-wrapper { width: 100%; background-color: #f4f4f4; padding: 20px 0; }
+                    .email-container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e5e5e5; border-radius: 18px; overflow: hidden; }
+                    .content { padding: 40px; }
+                    .footer { padding: 30px 40px; text-align: center; font-size: 12px; color: #888888; background-color: #f9f9f9; border-top: 1px solid #e5e5e5; }
+                    h1 { font-size: 28px; font-weight: 600; color: #000000; margin: 0 0 15px; text-align: center; }
+                    p.main-text { font-size: 17px; color: #000000; line-height: 1.5; margin: 0 0 25px; text-align: center; }
+                    .status-badge { display: inline-block; padding: 10px 20px; border-radius: 8px; background-color: {$roleConfig['badge_color']}; color: white; font-weight: 600; margin-bottom: 20px; }
+                    .icon-large { font-size: 64px; text-align: center; margin-bottom: 20px; }
+                    .details-box { background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 12px; padding: 25px; margin-bottom: 25px; }
+                    .details-box p { margin: 0 0 15px; font-size: 15px; color: #374151; text-align: left; }
+                    .details-box p:last-child { margin-bottom: 0; }
+                    .details-box strong { color: #111827; }
+                    .alert-box { background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 15px; border-radius: 8px; margin-bottom: 25px; }
+                    .description-box { background-color: #fffbeb; border: 1px solid #fbbf24; border-radius: 8px; padding: 15px; margin-bottom: 25px; }
+                    .button { display: inline-block; background-color: {$roleConfig['badge_color']}; color: #ffffff; font-size: 17px; font-weight: 500; text-decoration: none; padding: 14px 28px; border-radius: 980px; margin: 5px; }
+                    .footer-link { color: #0071e3; text-decoration: none; }
+                </style>
+            </head>
+            <body>
+                <table role='presentation' border='0' cellpadding='0' cellspacing='0' width='100%' class='email-wrapper'>
+                    <tr>
+                        <td align='center'>
+                            <table role='presentation' border='0' cellpadding='0' cellspacing='0' class='email-container'>
+                                <tr>
+                                    <td>
+                                        <div class='content'>
+                                            <div class='icon-large'>{$roleConfig['icon']}</div>
+                                            <div style='text-align: center;'>
+                                                <span class='status-badge'>{$roleConfig['badge_text']}</span>
+                                            </div>
+                                            <h1>{$roleConfig['title']}</h1>
+                                            <p class='main-text'>{$roleConfig['message']}</p>
+
+                                            <div class='details-box'>
+                                                <p><strong>Report ID:</strong><br>#{$reportId}</p>
+                                                <p><strong>Asset Name:</strong><br>" . htmlspecialchars($assetName) . "</p>
+                                                <p><strong>Asset Code:</strong><br>{$assetCode}</p>
+                                                <p><strong>Last Known Location:</strong><br>{$lastKnownLocation}</p>
+                                                <p><strong>Last Known Borrower:</strong><br>{$lastKnownBorrower}</p>
+                                                <p><strong>Last Seen Date:</strong><br>{$lastSeenDate}</p>
+                                                <p><strong>Reported By:</strong><br>{$reportedBy}</p>
+                                                <p><strong>Reported On:</strong><br>{$reportedDate}</p>
+                                            </div>
+
+                                            <div class='description-box'>
+                                                <p style='margin: 0 0 10px; font-size: 14px; font-weight: 600; color: #92400e;'>Report Description:</p>
+                                                <p style='margin: 0; font-size: 14px; color: #78350f; white-space: pre-wrap;'>" . htmlspecialchars($description) . "</p>
+                                            </div>
+
+                                            " . ($recipientRole === 'custodian' || $recipientRole === 'admin' ? "
+                                            <div class='alert-box'>
+                                                <p style='margin: 0 0 10px; font-size: 14px; color: #991b1b; font-weight: 600;'>Immediate Actions Required:</p>
+                                                <ul style='margin: 0; padding-left: 20px; color: #991b1b; font-size: 14px;'>
+                                                    <li>Review the missing asset report details</li>
+                                                    <li>Contact the reporter and last known borrower</li>
+                                                    <li>Check the last known location</li>
+                                                    <li>Begin formal investigation process</li>
+                                                    <li>Update report status in the system</li>
+                                                </ul>
+                                            </div>
+                                            " : "") . "
+
+                                            <div style='text-align: center; margin-bottom: 20px;'>
+                                                <a href='{$actionUrl}' class='button'>{$roleConfig['action_text']}</a>
+                                            </div>
+
+                                            <p style='text-align: center; font-size: 13px; color: #6b7280; margin-top: 30px;'>
+                                                This is a time-sensitive notification. Please take action as soon as possible.
+                                            </p>
+                                        </div>
+                                        <div class='footer'>
+                                            <p style='font-family: \"Great Vibes\", cursive; font-size: 40px; color: #bda54f; margin: 0 0 20px 0;'>We Find Assets</p>
+                                            <p style='margin: 0 0 10px; font-size: 12px; color: #888888; text-align: center;'>
+                                                This is an automated alert from the HCC Asset Management System.
+                                            </p>
+                                            <p style='margin: 0; font-size: 12px; color: #888888; text-align: center;'>
+                                                &copy; " . date('Y') . " Holy Cross Colleges. All rights reserved.
+                                            </p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+            </body>
+            </html>";
+
+        // Insert into email queue for async processing
+        $stmt = $pdo->prepare("
+            INSERT INTO email_queue (
+                recipient_email, recipient_name, subject, body_html,
+                status, priority, related_type, related_id,
+                next_retry_at
+            ) VALUES (
+                ?, ?, ?, ?,
+                'pending', ?, 'missing_asset_report', ?,
+                NOW()
+            )
+        ");
+
+        $stmt->execute([
+            $recipientEmail,
+            $recipientName,
+            $roleConfig['title'],
+            $emailBody,
+            $roleConfig['priority'],
+            $reportId
+        ]);
+
+        return true;
+    } catch (Exception $e) {
+        error_log("Failed to queue missing asset alert email: " . $e->getMessage());
+        return false;
+    }
+}
 ?>

@@ -153,9 +153,12 @@ try {
             'description' => $description
         ];
 
-        // 1. Send confirmation email to reporter
+        // USING ASYNC EMAIL QUEUE - Returns immediately without waiting for emails to send
+        // Background worker will process these emails asynchronously
+
+        // 1. Queue confirmation email to reporter
         try {
-            sendMissingAssetAlertEmail(
+            queueMissingAssetAlertEmail(
                 $pdo,
                 $user['email'],
                 $user['full_name'],
@@ -166,10 +169,10 @@ try {
                 $reportDetails
             );
         } catch (Exception $emailError) {
-            error_log("Failed to send reporter email: " . $emailError->getMessage());
+            error_log("Failed to queue reporter email: " . $emailError->getMessage());
         }
 
-        // 2. Send alert to all custodians at this campus
+        // 2. Queue alert to all custodians at this campus
         $custodianStmt = $pdo->prepare("
             SELECT id, email, full_name
             FROM users
@@ -182,7 +185,7 @@ try {
 
         foreach ($custodians as $custodian) {
             try {
-                sendMissingAssetAlertEmail(
+                queueMissingAssetAlertEmail(
                     $pdo,
                     $custodian['email'],
                     $custodian['full_name'],
@@ -193,11 +196,11 @@ try {
                     $reportDetails
                 );
             } catch (Exception $emailError) {
-                error_log("Failed to send custodian email to {$custodian['email']}: " . $emailError->getMessage());
+                error_log("Failed to queue custodian email to {$custodian['email']}: " . $emailError->getMessage());
             }
         }
 
-        // 3. Send alert to all admins
+        // 3. Queue alert to all admins
         $adminStmt = $pdo->prepare("
             SELECT id, email, full_name
             FROM users
@@ -209,7 +212,7 @@ try {
 
         foreach ($admins as $admin) {
             try {
-                sendMissingAssetAlertEmail(
+                queueMissingAssetAlertEmail(
                     $pdo,
                     $admin['email'],
                     $admin['full_name'],
@@ -220,7 +223,7 @@ try {
                     $reportDetails
                 );
             } catch (Exception $emailError) {
-                error_log("Failed to send admin email to {$admin['email']}: " . $emailError->getMessage());
+                error_log("Failed to queue admin email to {$admin['email']}: " . $emailError->getMessage());
             }
         }
 
@@ -229,7 +232,7 @@ try {
         /*
         if ($lastKnownBorrower && $lastKnownBorrowerContact && filter_var($lastKnownBorrowerContact, FILTER_VALIDATE_EMAIL)) {
             try {
-                sendMissingAssetAlertEmail(
+                queueMissingAssetAlertEmail(
                     $pdo,
                     $lastKnownBorrowerContact,
                     $lastKnownBorrower,
@@ -240,13 +243,13 @@ try {
                     $reportDetails
                 );
             } catch (Exception $emailError) {
-                error_log("Failed to send borrower email: " . $emailError->getMessage());
+                error_log("Failed to queue borrower email: " . $emailError->getMessage());
             }
         }
         */
     }
 
-    // Return success response AFTER emails are sent
+    // Return success response immediately (emails are queued for async processing)
     echo json_encode([
         'success' => true,
         'message' => 'Missing asset report submitted successfully',
