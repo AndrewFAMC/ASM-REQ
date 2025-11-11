@@ -199,29 +199,126 @@ try {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css" />
     <meta name="csrf-token" content="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
     <style>
+        /* Print styles for 100mm x 150mm label */
         @page {
-            size: landscape;
+            size: 150mm 100mm;
             margin: 0;
         }
+
         @media print {
             body * {
                 visibility: hidden;
             }
-            #printableTagModal, #printable-tag-content, #tag-to-print, #tag-to-print * {
+
+            #printableTagModal,
+            #printableTagModal *,
+            #printable-tag-content,
+            #printable-tag-content *,
+            #tag-to-print,
+            #tag-to-print * {
                 visibility: visible;
             }
+
             #printableTagModal {
-                position: absolute; left: 0; top: 0; width: 100%; height: 100%;
-                display: flex; align-items: flex-start; justify-content: flex-start;
-                background: white; border: none; box-shadow: none; padding: 0; margin: 0;
+                position: fixed !important;
+                top: 0 !important;
+                left: 0 !important;
+                width: 150mm !important;
+                height: 100mm !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                background: white !important;
             }
+
             #printable-tag-content {
-                width: 150mm; height: 100mm; margin: 0; padding: 0; box-shadow: none;
-                border: none; border-radius: 0;
+                width: 150mm !important;
+                height: 100mm !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                box-shadow: none !important;
+                border: none !important;
+                border-radius: 0 !important;
             }
+
             #tag-to-print {
-                width: 150mm; height: 100mm; margin: 0; padding: 10mm;
-                border: 2px solid black !important;
+                width: 150mm !important;
+                height: 100mm !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                border: 1px solid black !important;
+                box-sizing: border-box !important;
+                display: flex !important;
+                min-height: 100mm !important;
+                max-height: 100mm !important;
+            }
+
+            /* Left sidebar with logo */
+            #tag-to-print > div:first-child {
+                width: 12mm !important;
+                padding: 1mm !important;
+            }
+
+            #tag-to-print img {
+                height: 15mm !important;
+                width: 15mm !important;
+            }
+
+            /* Main content area */
+            #tag-to-print > div:last-child {
+                flex: 1 !important;
+                padding: 1mm !important;
+            }
+
+            #tag-to-print table {
+                width: 100% !important;
+                border-collapse: collapse !important;
+                font-size: 9px !important;
+                height: 100% !important;
+            }
+
+            #tag-to-print td {
+                border: 1px solid black !important;
+                padding: 1mm !important;
+                font-size: 9px !important;
+            }
+
+            #tag-to-print .text-sm {
+                font-size: 9px !important;
+            }
+
+            #tag-to-print .text-xs {
+                font-size: 7px !important;
+            }
+
+            #tag-to-print .font-bold {
+                font-weight: bold !important;
+            }
+
+            #tag-to-print .bg-gray-100 {
+                background-color: #f3f4f6 !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            #tag-to-print .bg-gray-50 {
+                background-color: #f9fafb !important;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+            }
+
+            #pt_qrcode canvas,
+            #pt_qrcode img {
+                max-width: 20mm !important;
+                max-height: 20mm !important;
+            }
+
+            #pt_barcode {
+                max-width: 30mm !important;
+                max-height: 15mm !important;
+            }
+
+            .print\:hidden {
+                display: none !important;
             }
         }
     </style>

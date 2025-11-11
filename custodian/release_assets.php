@@ -403,18 +403,32 @@ try {
     <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.5/dist/JsBarcode.all.min.js"></script>
 
     <style>
+        @page {
+            size: 100mm 150mm;
+            margin: 0;
+        }
         @media print {
             body * {
                 visibility: hidden;
             }
-            #tag-to-print, #tag-to-print * {
+            #printableTagModal, #printable-tag-content, #tag-to-print, #tag-to-print * {
                 visibility: visible;
             }
+            #printableTagModal {
+                position: absolute; left: 0; top: 0; width: 100mm; height: 150mm;
+                display: flex; align-items: center; justify-content: center;
+                background: white; border: none; box-shadow: none; padding: 0; margin: 0;
+            }
+            #printable-tag-content {
+                width: 100mm; height: 150mm; margin: 0; padding: 0; box-shadow: none;
+                border: none; border-radius: 0;
+                display: flex; align-items: center; justify-content: center;
+            }
             #tag-to-print {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
+                width: 145mm; height: 95mm; margin: 0; padding: 3mm;
+                border: 2px solid black !important;
+                transform: rotate(90deg);
+                transform-origin: center center;
             }
         }
     </style>
