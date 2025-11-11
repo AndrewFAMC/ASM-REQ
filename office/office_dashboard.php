@@ -313,12 +313,12 @@ try {
 
             #pt_qrcode canvas,
             #pt_qrcode img {
-                max-width: 20mm !important;
-                max-height: 20mm !important;
+                max-width: 25mm !important;
+                max-height: 25mm !important;
             }
 
             #pt_barcode {
-                max-width: 30mm !important;
+                max-width: 38mm !important;
                 max-height: 15mm !important;
             }
 
