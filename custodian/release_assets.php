@@ -285,7 +285,7 @@ try {
 
     <!-- Printable Tag Modal -->
     <div id="printableTagModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-        <div class="bg-white rounded-lg shadow-xl w-full max-w-md" id="printable-tag-content">
+        <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl" id="printable-tag-content">
             <!-- Header -->
             <div class="p-4 border-b flex justify-between items-center print:hidden">
                 <h3 class="text-lg font-semibold">Inventory Tag</h3>
@@ -300,37 +300,99 @@ try {
             </div>
 
             <!-- Tag Content -->
-            <div class="p-4 border-2 border-dashed border-gray-400 m-4" id="tag-to-print">
-                <div class="flex justify-between items-start mb-2">
-                    <div>
-                        <img src="../logo/1.png" alt="HCC Logo" class="h-12 w-12">
+            <div class="border-2 border-black m-4 flex" id="tag-to-print" style="font-family: Arial, sans-serif; min-height: 400px;">
+                <!-- Left Side Header (Vertical) -->
+                <div class="border-r-2 border-black flex flex-col items-center justify-between py-2 px-1" style="width: 50px;">
+                    <div class="flex flex-col items-center gap-2">
+                        <img src="../logo/1.png" alt="HCC Logo" class="h-10 w-10">
                     </div>
-                    <div class="text-right">
-                        <h4 class="font-bold text-xl">HOLY CROSS COLLEGES</h4>
-                        <p class="text-sm" id="pt_campus_name">Sta. Rosa, Nueva Ecija</p>
+                    <div class="flex-1 flex items-center justify-center">
+                        <p class="text-xs font-bold tracking-wider" style="writing-mode: vertical-lr; transform: rotate(180deg); letter-spacing: 3px;">INVENTORY TAG</p>
                     </div>
-                </div>
-
-                <div class="text-center mb-3">
-                    <h5 class="font-bold text-2xl" id="pt_asset_name">Asset Name</h5>
-                    <p class="text-base" id="pt_office_name">Office Name</p>
-                </div>
-
-                <div class="grid grid-cols-5 gap-3">
-                    <div class="col-span-3 space-y-1 text-sm">
-                        <p><strong>Tag No:</strong> <span id="pt_tag_number" class="font-mono"></span></p>
-                        <p><strong>Article:</strong> <span id="pt_article"></span></p>
-                        <p><strong>Date Acquired:</strong> <span id="pt_inventory_date"></span></p>
-                        <p><strong>Price:</strong> <span id="pt_price"></span></p>
-                        <p><strong>Remarks:</strong> <span id="pt_remarks"></span></p>
-                    </div>
-                    <div class="col-span-2 flex flex-col items-center justify-center">
-                        <div id="pt_qr_code" class="mb-2"></div>
+                    <div class="flex items-end">
+                        <p class="text-xs font-bold" style="writing-mode: vertical-lr; transform: rotate(180deg);">Attach This Style</p>
                     </div>
                 </div>
 
-                <div class="mt-4 text-center">
-                    <svg id="pt_barcode"></svg>
+                <!-- Main Content Area -->
+                <div class="flex-1 p-3">
+                    <!-- Main Table -->
+                    <table class="w-full text-sm border-collapse">
+                    <tbody>
+                        <!-- Row 1: Inventory Date and Tag Number -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold w-1/4">Inventory Date</td>
+                            <td class="border border-black p-1 w-1/4" id="pt_inventory_date"></td>
+                            <td class="border border-black p-1 bg-gray-100 font-bold w-1/4">Tag Number</td>
+                            <td class="border border-black p-1 w-1/4" id="pt_tag_number"></td>
+                        </tr>
+                        <!-- Row 2: Article/Material -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Article / Material</td>
+                            <td class="border border-black p-1" colspan="3" id="pt_article"></td>
+                        </tr>
+                        <!-- Row 3: SKU Details -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">SKU Details</td>
+                            <td class="border border-black p-1" colspan="3" id="pt_serial_number"></td>
+                        </tr>
+                        <!-- Row 4: Quantity and Size -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Quantity</td>
+                            <td class="border border-black p-1" id="pt_quantity"></td>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Size</td>
+                            <td class="border border-black p-1" id="pt_size"></td>
+                        </tr>
+                        <!-- Row 5: Location -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold" rowspan="2">Location</td>
+                            <td class="border border-black p-1 text-center bg-gray-50 font-semibold">Row</td>
+                            <td class="border border-black p-1 text-center bg-gray-50 font-semibold">Section</td>
+                            <td class="border border-black p-1 text-center bg-gray-50 font-semibold">Floor</td>
+                        </tr>
+                        <tr>
+                            <td class="border border-black p-1" id="pt_location_row"></td>
+                            <td class="border border-black p-1" id="pt_location_section"></td>
+                            <td class="border border-black p-1" id="pt_location_floor"></td>
+                        </tr>
+                        <!-- Row 6: Counted By and Price By -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Counted By</td>
+                            <td class="border border-black p-1" id="pt_counted_by"></td>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Price By</td>
+                            <td class="border border-black p-1" id="pt_supplier"></td>
+                        </tr>
+                        <!-- Row 7: Checked By and Amount -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Checked By</td>
+                            <td class="border border-black p-1" id="pt_checked_by"></td>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Amount / Unit Price</td>
+                            <td class="border border-black p-1" id="pt_price"></td>
+                        </tr>
+                        <!-- Row 8: Remarks and QR/Barcode -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Remarks</td>
+                            <td class="border border-black p-1" id="pt_remarks"></td>
+                            <td class="border border-black p-1" colspan="2" rowspan="2">
+                                <!-- QR Code and Barcode -->
+                                <div class="flex flex-col items-center justify-center h-full">
+                                    <div id="pt_qr_code" class="mb-1"></div>
+                                    <svg id="pt_barcode" class="mt-1"></svg>
+                                </div>
+                            </td>
+                        </tr>
+                        <!-- Row 9: Total Value -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Total Value</td>
+                            <td class="border border-black p-1" id="pt_total_value"></td>
+                        </tr>
+                        <!-- Row 10: Updated on -->
+                        <tr>
+                            <td class="border border-black p-1 bg-gray-100 font-bold">Updated on:</td>
+                            <td class="border border-black p-1" colspan="3" id="pt_updated_at"></td>
+                        </tr>
+                    </tbody>
+                    </table>
                 </div>
             </div>
         </div>
@@ -739,31 +801,40 @@ try {
 
                 const tag = data.tag;
 
-                // Populate printable tag modal
-                document.getElementById('pt_campus_name').textContent = tag.campus_name || 'Sta. Rosa, Nueva Ecija';
-                document.getElementById('pt_asset_name').textContent = tag.asset_name || '';
-                document.getElementById('pt_office_name').textContent = tag.office_name || '';
-                document.getElementById('pt_tag_number').textContent = tag.tag_number || '';
-                document.getElementById('pt_article').textContent = tag.article || 'chair';
+                // Populate all tag fields
+                document.getElementById('pt_tag_number').textContent = tag.tag_number || 'N/A';
                 document.getElementById('pt_inventory_date').textContent = tag.inventory_date || new Date().toLocaleDateString();
-                document.getElementById('pt_price').textContent = tag.unit_price ? `₱${parseFloat(tag.unit_price).toFixed(2)}` : '₱0.00';
-                document.getElementById('pt_remarks').textContent = tag.remarks || 'WORKING';
+                document.getElementById('pt_article').textContent = tag.article || 'N/A';
+                document.getElementById('pt_serial_number').textContent = tag.serial_number || 'N/A';
+                document.getElementById('pt_quantity').textContent = tag.quantity || '1';
+                document.getElementById('pt_size').textContent = tag.size || 'N/A';
+                document.getElementById('pt_location_row').textContent = tag.location_row || 'N/A';
+                document.getElementById('pt_location_section').textContent = tag.location_section || 'N/A';
+                document.getElementById('pt_location_floor').textContent = tag.location_floor || 'N/A';
+                document.getElementById('pt_counted_by').textContent = tag.counted_by || 'N/A';
+                document.getElementById('pt_supplier').textContent = tag.supplier || 'N/A';
+                document.getElementById('pt_checked_by').textContent = tag.checked_by || 'N/A';
+                document.getElementById('pt_price').textContent = tag.unit_price ? `₱${parseFloat(tag.unit_price).toLocaleString('en-PH')}` : '₱0.00';
+                document.getElementById('pt_remarks').textContent = tag.remarks || 'N/A';
+                document.getElementById('pt_total_value').textContent = tag.total_value ? `₱${parseFloat(tag.total_value).toLocaleString('en-PH')}` : '₱0.00';
+                document.getElementById('pt_updated_at').textContent = tag.updated_at ? new Date(tag.updated_at).toLocaleString() : 'N/A';
 
                 // Generate QR code
                 const qrContainer = document.getElementById('pt_qr_code');
                 qrContainer.innerHTML = '';
                 new QRCode(qrContainer, {
                     text: `${window.location.origin}/AMS-REQ/asset_lookup.php?tag=${tag.tag_number}`,
-                    width: 128,
-                    height: 128
+                    width: 80,
+                    height: 80
                 });
 
                 // Generate barcode
                 JsBarcode("#pt_barcode", tag.tag_number, {
                     format: "CODE128",
-                    width: 2,
-                    height: 50,
-                    displayValue: true
+                    width: 1.5,
+                    height: 40,
+                    displayValue: true,
+                    fontSize: 12
                 });
 
                 // Show the modal

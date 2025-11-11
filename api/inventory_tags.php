@@ -28,6 +28,7 @@ try {
                 SELECT
                     it.*,
                     a.asset_name,
+                    a.serial_number,
                     o.office_name,
                     cam.campus_name
                 FROM inventory_tags it
