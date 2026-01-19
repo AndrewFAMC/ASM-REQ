@@ -585,7 +585,26 @@ $stats['pending'] = $stats['in_progress'];
                 if (history.length > 0) {
                     historyHtml = '<div class="mt-4"><h4 class="font-semibold text-gray-900 mb-3">Approval History</h4><div class="space-y-3">';
                     history.forEach(approval => {
-                        const badgeClass = approval.status === 'approved' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+                        let badgeClass = 'bg-gray-100 text-gray-800';
+                        let statusText = approval.status;
+
+                        if (approval.status === 'approved') {
+                            badgeClass = 'bg-green-100 text-green-800';
+                            statusText = 'Approved';
+                        } else if (approval.status === 'rejected') {
+                            badgeClass = 'bg-red-100 text-red-800';
+                            statusText = 'Rejected';
+                        } else if (approval.status === 'released') {
+                            badgeClass = 'bg-purple-100 text-purple-800';
+                            statusText = 'Released';
+                        } else if (approval.status === 'returned') {
+                            badgeClass = 'bg-blue-100 text-blue-800';
+                            statusText = 'Returned';
+                        } else if (approval.status === 'late_return') {
+                            badgeClass = 'bg-orange-100 text-orange-800';
+                            statusText = 'Late Return';
+                        }
+
                         historyHtml += `
                             <div class="border border-gray-200 rounded-lg p-3">
                                 <div class="flex items-center justify-between mb-2">
@@ -594,10 +613,10 @@ $stats['pending'] = $stats['in_progress'];
                                         <p class="text-sm text-gray-600">${approval.approver_role}</p>
                                     </div>
                                     <span class="px-2 py-1 rounded text-xs font-semibold ${badgeClass}">
-                                        ${approval.status}
+                                        ${statusText}
                                     </span>
                                 </div>
-                                ${approval.comments ? `<p class="text-sm text-gray-700 italic">"${escapeHtml(approval.comments)}"</p>` : ''}
+                                ${approval.comments ? `<p class="text-sm text-gray-700 italic">${escapeHtml(approval.comments)}</p>` : ''}
                                 <p class="text-xs text-gray-500 mt-2">${new Date(approval.created_at).toLocaleString()}</p>
                             </div>
                         `;

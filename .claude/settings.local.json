@@ -1,9 +1,36 @@
 {
   "permissions": {
     "allow": [
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\":*)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"SHOW TABLES LIKE ''%maintenance%'';\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"DESCRIBE asset_units;\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"DESCRIBE asset_maintenance;\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"DESCRIBE unit_history;\" hcc_asset_management)",
+      "Bash(\"c:\\xampp\\mysql\\bin\\mysql.exe\" -u root -e \"SHOW CREATE TABLE borrowing_chain\\G\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"SHOW TABLES LIKE ''%approval%'';\" hcc_asset_management)",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\custodian\\manage_units.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\custodian\\quick_scan_update.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\custodian\\approve_requests.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\custodian\\return_assets.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\custodian\\missing_assets.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\custodian\\approval_history.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\admin\\offices.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\api\\assets.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\api\\requests.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\api\\barcode_lookup.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\api\\quick_asset_update.php\")",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l \"c:\\xampp\\htdocs\\AMS-REQ\\cron\\check_overdue_assets.php\")",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"DESCRIBE inventory_tags;\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"SHOW TABLES LIKE ''%unit%'';\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"DESCRIBE tag_units;\" hcc_asset_management)",
+      "Bash(\"c:\\xampp\\php\\php.exe\" -l asset_lookup.php)",
       "Bash(dir:*)",
-      "Bash(mysql:*)",
-      "Bash(findstr:*)"
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"SHOW TABLES LIKE ''inventory_tags'';\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"SELECT COUNT(*) as count FROM inventory_tags;\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"SELECT tag_number, asset_id FROM inventory_tags;\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"SELECT tag_number FROM inventory_tags WHERE tag_number LIKE ''%HCC%'';\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"SELECT id, asset_name, office_id FROM assets WHERE id = 1;\" hcc_asset_management)",
+      "Bash(\"c:/xampp/mysql/bin/mysql.exe\" -u root -e \"DESCRIBE assets;\" hcc_asset_management)"
     ],
     "deny": [],
     "ask": []

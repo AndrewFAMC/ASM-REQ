@@ -43,7 +43,7 @@ try {
 
     // ENHANCEMENT: Search by unit code or unit serial number
     $unitStmt = $pdo->prepare("
-        SELECT au.asset_id, au.id as unit_id, au.unit_code, au.unit_serial_number
+        SELECT au.asset_id, au.id as unit_id, au.unit_code, au.unit_serial_number, au.unit_status, au.condition_rating
         FROM asset_units au
         JOIN assets a ON au.asset_id = a.id
         WHERE a.campus_id = ?
@@ -238,7 +238,7 @@ try {
     $unitsData = [];
     if ($asset['track_individually']) {
         $unitsStmt = $pdo->prepare("
-            SELECT id, unit_code, unit_serial_number, unit_status, condition_rating, assigned_to_office
+            SELECT id, unit_code, unit_serial_number, unit_status, condition_rating, assigned_to_user_id, location_notes
             FROM asset_units
             WHERE asset_id = ?
             ORDER BY unit_code

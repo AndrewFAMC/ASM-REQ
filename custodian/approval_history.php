@@ -148,6 +148,12 @@ $csrfToken = generateCSRFToken();
                     <span>Quick Scan Update</span>
                 </a>
 
+                <!-- Manage Units -->
+                <a href="manage_units.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-tags w-6"></i>
+                    <span>Manage Units</span>
+                </a>
+
                 <!-- Approve Requests -->
                 <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
                     <i class="fas fa-check-circle w-6"></i>

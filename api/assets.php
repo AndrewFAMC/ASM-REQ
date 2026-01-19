@@ -44,6 +44,7 @@ try {
 
             // Get available assets from this office
             // Assets are associated with offices through inventory_tags
+            // Exclude units with damaged/missing/under repair/disposed status
             $stmt = $pdo->prepare("
                 SELECT
                     a.id,
@@ -56,15 +57,23 @@ try {
                     c.category_name,
                     c.id as category_id,
                     o.office_name,
+                    a.track_individually,
                     it.borrowable_quantity,
-                    COALESCE(it.borrowable_quantity, 0) as available_quantity
+                    COALESCE(unavailable_units.unavailable_count, 0) as unavailable_units_count,
+                    COALESCE(it.borrowable_quantity, 0) - COALESCE(unavailable_units.unavailable_count, 0) as available_quantity
                 FROM inventory_tags it
                 JOIN assets a ON it.asset_id = a.id
                 JOIN categories c ON a.category_id = c.id
                 JOIN offices o ON it.office_id = o.id
+                LEFT JOIN (
+                    SELECT au.asset_id, COUNT(*) as unavailable_count
+                    FROM asset_units au
+                    WHERE au.unit_status IN ('Damaged', 'Missing', 'Under Repair', 'Disposed')
+                    GROUP BY au.asset_id
+                ) unavailable_units ON a.id = unavailable_units.asset_id
                 WHERE it.office_id = ?
                     AND it.status IN ('Active', 'Available')
-                    AND COALESCE(it.borrowable_quantity, 0) > 0
+                    AND (COALESCE(it.borrowable_quantity, 0) - COALESCE(unavailable_units.unavailable_count, 0)) > 0
                 ORDER BY a.asset_name ASC
             ");
             $stmt->execute([$officeId]);
@@ -83,7 +92,7 @@ try {
             $campusId = $user['campus_id'];
 
             // Get available assets from custodian/central inventory
-            // Calculate remaining quantity after office assignments
+            // Calculate remaining quantity after office assignments and exclude damaged/missing/under repair/disposed units
             $stmt = $pdo->prepare("
                 SELECT
                     a.id,
@@ -96,15 +105,23 @@ try {
                     c.category_name,
                     c.id as category_id,
                     a.inactive_quantity,
+                    a.track_individually,
                     COALESCE(SUM(it.quantity), 0) as assigned_to_offices,
-                    (a.quantity - COALESCE(a.inactive_quantity, 0) - COALESCE(SUM(it.quantity), 0)) as available_quantity,
+                    COALESCE(unavailable_units.unavailable_count, 0) as unavailable_units_count,
+                    (a.quantity - COALESCE(a.inactive_quantity, 0) - COALESCE(SUM(it.quantity), 0) - COALESCE(unavailable_units.unavailable_count, 0)) as available_quantity,
                     'Central Inventory' as location
                 FROM assets a
                 JOIN categories c ON a.category_id = c.id
                 LEFT JOIN inventory_tags it ON a.id = it.asset_id AND it.status IN ('Active', 'Available')
+                LEFT JOIN (
+                    SELECT asset_id, COUNT(*) as unavailable_count
+                    FROM asset_units
+                    WHERE unit_status IN ('Damaged', 'Missing', 'Under Repair', 'Disposed')
+                    GROUP BY asset_id
+                ) unavailable_units ON a.id = unavailable_units.asset_id
                 WHERE a.campus_id = ?
                     AND a.status IN ('Available', 'Unavailable')
-                GROUP BY a.id, a.asset_name, a.serial_number, a.description, a.status, a.quantity, a.value, c.category_name, c.id, a.inactive_quantity
+                GROUP BY a.id, a.asset_name, a.serial_number, a.description, a.status, a.quantity, a.value, c.category_name, c.id, a.inactive_quantity, a.track_individually, unavailable_units.unavailable_count
                 HAVING available_quantity > 0
                 ORDER BY a.asset_name ASC
             ");

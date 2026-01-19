@@ -63,6 +63,36 @@ $statsStmt = $pdo->prepare("
 ");
 $statsStmt->execute([$campusId]);
 $stats = $statsStmt->fetch();
+
+// Get badge counts (same as other custodian pages)
+$pendingReleaseCount = 0;
+$pendingReturnCount = 0;
+$overdueCount = 0;
+$missingAssetsCount = 0;
+
+try {
+    // Count pending releases (approved but not yet released) - only custodian requests
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'approved' AND campus_id = ? AND request_source = 'custodian'");
+    $stmt->execute([$campusId]);
+    $pendingReleaseCount = (int)$stmt->fetchColumn();
+
+    // Count pending returns (released but not yet returned)
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ?");
+    $stmt->execute([$campusId]);
+    $pendingReturnCount = (int)$stmt->fetchColumn();
+
+    // Count overdue returns
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM asset_requests WHERE status = 'released' AND campus_id = ? AND expected_return_date < CURDATE()");
+    $stmt->execute([$campusId]);
+    $overdueCount = (int)$stmt->fetchColumn();
+
+    // Count missing assets reports (active investigations)
+    $stmt = $pdo->prepare("SELECT COUNT(*) as count FROM missing_assets_reports WHERE campus_id = ? AND status IN ('reported', 'investigating')");
+    $stmt->execute([$campusId]);
+    $missingAssetsCount = (int)$stmt->fetchColumn();
+} catch (PDOException $e) {
+    error_log("Error fetching custodian statistics: " . $e->getMessage());
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -88,18 +118,99 @@ $stats = $statsStmt->fetch();
         .status-disposed { background: #f3f4f6; color: #374151; }
     </style>
 </head>
-<body class="bg-gray-100">
-    <?php include '../includes/custodian_nav.php'; ?>
+<body class="bg-gray-100 font-sans">
 
-    <div class="container mx-auto px-4 py-8">
-        <!-- Header -->
-        <div class="mb-6">
-            <h1 class="text-3xl font-bold text-gray-800 mb-2">
-                <i class="fas fa-layer-group text-blue-600"></i>
-                Manage Individual Units
-            </h1>
-            <p class="text-gray-600">View and update status of individual asset units</p>
+    <div class="flex h-screen bg-gray-200">
+        <!-- Sidebar -->
+        <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
+            <div class="flex items-center justify-center h-20 border-b border-gray-700">
+                <img src="../logo/1.png" alt="Logo" class="h-10 w-10 mr-3">
+                <span class="text-white text-lg font-bold">Custodian Panel</span>
+            </div>
+            <nav class="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
+                <!-- Simplified Navigation -->
+                <a href="dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-box-open w-6"></i><span>Manage Assets</span>
+                </a>
+                <a href="dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-building w-6"></i><span>Offices</span>
+                </a>
+
+                <!-- Divider -->
+                <div class="border-t border-gray-700 my-2"></div>
+
+                <!-- Quick Scan Update -->
+                <a href="quick_scan_update.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-barcode-read w-6"></i>
+                    <span>Quick Scan Update</span>
+                </a>
+
+                <!-- Manage Units (Active) -->
+                <a href="manage_units.php" class="flex items-center px-4 py-2 rounded-md bg-gray-700 text-white">
+                    <i class="fas fa-tags w-6"></i>
+                    <span>Manage Units</span>
+                </a>
+
+                <!-- Approve Requests -->
+                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-check-circle w-6"></i>
+                    <span>Approve Requests</span>
+                </a>
+
+                <!-- Release Assets -->
+                <a href="release_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-hand-holding w-6"></i>
+                    <span>Release Assets</span>
+                    <?php if ($pendingReleaseCount > 0): ?>
+                        <span class="ml-auto bg-green-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReleaseCount ?></span>
+                    <?php endif; ?>
+                </a>
+
+                <!-- Return Assets -->
+                <a href="return_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-undo w-6"></i>
+                    <span>Return Assets</span>
+                    <?php if ($pendingReturnCount > 0): ?>
+                        <span class="ml-auto <?= $overdueCount > 0 ? 'bg-red-500' : 'bg-yellow-500' ?> text-white text-xs px-2 py-1 rounded-full font-bold"><?= $pendingReturnCount ?></span>
+                    <?php endif; ?>
+                </a>
+
+                <!-- Divider -->
+                <div class="border-t border-gray-700 my-2"></div>
+
+                <!-- Missing Assets -->
+                <a href="missing_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-search w-6"></i>
+                    <span>Missing Assets</span>
+                    <?php if ($missingAssetsCount > 0): ?>
+                        <span class="ml-auto bg-red-500 text-white text-xs px-2 py-1 rounded-full font-bold"><?= $missingAssetsCount ?></span>
+                    <?php endif; ?>
+                </a>
+
+                <!-- Approval History -->
+                <a href="approval_history.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-history w-6"></i>
+                    <span>Approval History</span>
+                </a>
+            </nav>
         </div>
+
+        <!-- Main content -->
+        <div class="flex-1 flex flex-col overflow-hidden">
+            <!-- Header -->
+            <header class="flex items-center justify-between p-4 bg-white border-b border-gray-200">
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-900">Manage Individual Units</h2>
+                    <p class="text-gray-600 mt-1">View and update status of individual asset units</p>
+                </div>
+                <div class="flex items-center space-x-4">
+                    <span class="text-sm text-gray-600">Welcome, <strong><?= htmlspecialchars($user['full_name']) ?></strong></span>
+                    <a href="../logout.php" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-md text-sm">Logout</a>
+                </div>
+            </header>
+
+            <main class="flex-1 overflow-y-auto p-8">
+                <div class="max-w-7xl mx-auto">
 
         <!-- Statistics Cards -->
         <div class="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
@@ -196,6 +307,9 @@ $stats = $statsStmt->fetch();
                     <?php endforeach; ?>
                 </div>
             <?php endif; ?>
+
+                </div>
+            </main>
         </div>
     </div>
 

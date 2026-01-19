@@ -140,6 +140,12 @@ try {
                     <span>Quick Scan Update</span>
                 </a>
 
+                <!-- Manage Units -->
+                <a href="manage_units.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-tags w-6"></i>
+                    <span>Manage Units</span>
+                </a>
+
                 <!-- Approve Requests -->
                 <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
                     <i class="fas fa-check-circle w-6"></i>
@@ -621,6 +627,23 @@ try {
             const isOverdue = this.isOverdue(request);
             const daysOverdue = isOverdue ? Math.floor((new Date() - new Date(request.expected_return_date)) / (1000 * 60 * 60 * 24)) : 0;
 
+            // Check transfer history to determine current holder
+            let currentHolder = request.requester_name;
+            try {
+                const transferResponse = await fetch(`../api/transfer_asset.php?action=get_transfer_chain&request_id=${requestId}`);
+                const transferData = await transferResponse.json();
+                if (transferData.success && transferData.data && transferData.data.length > 0) {
+                    // Get the most recent active transfer
+                    const activeTransfers = transferData.data.filter(t => t.status === 'active');
+                    if (activeTransfers.length > 0) {
+                        currentHolder = activeTransfers[0].to_person;
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking transfer history:', error);
+                // Continue with original borrower as default
+            }
+
             // Step 1: Ask who is returning the asset (detect indirect returns)
             const borrowerCheck = await Swal.fire({
                 title: 'Who is Returning This Asset?',
@@ -631,6 +654,12 @@ try {
                                 <i class="fas fa-info-circle mr-2"></i>
                                 <strong>Original Borrower:</strong> ${this.escapeHtml(request.requester_name)}
                             </p>
+                            ${currentHolder !== request.requester_name ? `
+                                <p class="text-sm text-blue-900 mt-2">
+                                    <i class="fas fa-user-circle mr-2"></i>
+                                    <strong>Current Holder:</strong> ${this.escapeHtml(currentHolder)}
+                                </p>
+                            ` : ''}
                             <p class="text-sm text-blue-900 mt-2">
                                 <i class="fas fa-box mr-2"></i>
                                 <strong>Asset:</strong> ${this.escapeHtml(request.asset_name)}
@@ -640,11 +669,11 @@ try {
                             <label class="block text-sm font-medium text-gray-700 mb-2">
                                 <i class="fas fa-user mr-1"></i>Person Returning Asset
                             </label>
-                            <input type="text" id="returningPerson" value="${this.escapeHtml(request.requester_name)}"
+                            <input type="text" id="returningPerson" value="${this.escapeHtml(currentHolder)}"
                                    class="w-full border border-gray-300 rounded-lg px-3 py-2"
                                    placeholder="Name of person physically returning the asset">
                             <p class="text-xs text-gray-500 mt-1">
-                                If different from original borrower, we'll help you record the transfer chain.
+                                If different from current holder, we'll help you record the transfer chain.
                             </p>
                         </div>
                     </div>
@@ -667,10 +696,11 @@ try {
             if (!borrowerCheck.isConfirmed) return;
 
             const returningPerson = borrowerCheck.value.returningPerson;
+            const isCurrentHolder = (returningPerson.toLowerCase() === currentHolder.toLowerCase());
             const isOriginalBorrower = (returningPerson.toLowerCase() === request.requester_name.toLowerCase());
 
-            // Step 2: If not original borrower, offer to record transfer
-            if (!isOriginalBorrower) {
+            // Step 2: If not current holder, offer to record transfer
+            if (!isCurrentHolder) {
                 const transferPrompt = await Swal.fire({
                     title: 'Indirect Return Detected',
                     html: `
@@ -684,7 +714,7 @@ try {
                                         <h3 class="text-sm font-medium text-orange-800">Transfer Chain Alert</h3>
                                         <div class="mt-2 text-sm text-orange-700">
                                             <p><strong>${returningPerson}</strong> is returning this asset,</p>
-                                            <p>but it was originally borrowed by <strong>${this.escapeHtml(request.requester_name)}</strong></p>
+                                            <p>but it's currently held by <strong>${this.escapeHtml(currentHolder)}</strong></p>
                                         </div>
                                     </div>
                                 </div>

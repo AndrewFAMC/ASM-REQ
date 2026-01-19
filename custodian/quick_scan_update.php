@@ -113,6 +113,11 @@ try {
                     <span>Quick Scan Update</span>
                 </a>
 
+                <a href="manage_units.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-tags w-6"></i>
+                    <span>Manage Units</span>
+                </a>
+
                 <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
                     <i class="fas fa-check-circle w-6"></i>
                     <span>Approve Requests</span>
@@ -221,6 +226,7 @@ try {
     <script>
     // Current asset tracking
     let currentAsset = null;
+    let currentUnit = null; // Track scanned unit
 
     // Initialize barcode scanner
     const scanner = new BarcodeScannerManager({
@@ -297,6 +303,7 @@ try {
 
             if (data.success) {
                 currentAsset = data.asset;
+                currentUnit = data.unit_searched || null; // Store scanned unit info
                 displayAssetPanel(data);
 
                 // Clear input for next scan
@@ -330,6 +337,7 @@ try {
 
     function displayAssetPanel(data) {
         const asset = data.asset;
+        const unit = data.unit_searched;
         const panel = document.getElementById('assetPanel');
 
         const statusColors = {
@@ -339,15 +347,16 @@ try {
             'Damaged': 'bg-red-100 text-red-800 border-red-300',
             'Missing': 'bg-red-100 text-red-800 border-red-300',
             'Under Repair': 'bg-yellow-100 text-yellow-800 border-yellow-300',
-            'Retired': 'bg-gray-100 text-gray-600 border-gray-300'
+            'Retired': 'bg-gray-100 text-gray-600 border-gray-300',
+            'Disposed': 'bg-gray-200 text-gray-700 border-gray-400'
         };
 
         const currentBorrowing = data.current_borrowing;
 
         panel.innerHTML = `
-            <div class="bg-white rounded-lg shadow-lg border-l-4 border-blue-500 mb-6">
+            <div class="bg-white rounded-lg shadow-lg border-l-4 ${unit ? 'border-purple-500' : 'border-blue-500'} mb-6">
                 <!-- Asset Header -->
-                <div class="p-6 border-b bg-gradient-to-r from-blue-50 to-white">
+                <div class="p-6 border-b bg-gradient-to-r from-${unit ? 'purple' : 'blue'}-50 to-white">
                     <div class="flex items-start justify-between">
                         <div class="flex-1">
                             <h3 class="text-2xl font-bold text-gray-900 mb-2">${escapeHtml(asset.asset_name)}</h3>
@@ -356,9 +365,21 @@ try {
                                 ${asset.barcode ? `<span><i class="fas fa-barcode mr-1"></i>${escapeHtml(asset.barcode)}</span>` : ''}
                                 ${asset.serial_number ? `<span><i class="fas fa-fingerprint mr-1"></i>${escapeHtml(asset.serial_number)}</span>` : ''}
                             </div>
+                            ${unit ? `
+                                <div class="mt-3 p-3 bg-purple-50 rounded-lg border border-purple-200">
+                                    <p class="text-xs font-semibold text-purple-600 uppercase mb-1">
+                                        <i class="fas fa-tag mr-1"></i>Scanned Individual Unit
+                                    </p>
+                                    <p class="text-sm font-bold text-purple-900">Unit Code: ${escapeHtml(unit.unit_code)}</p>
+                                    <p class="text-xs text-purple-700 mt-1">
+                                        Status: <span class="font-semibold">${unit.unit_status || 'Unknown'}</span>
+                                        ${unit.unit_serial_number ? ` • Serial: ${escapeHtml(unit.unit_serial_number)}` : ''}
+                                    </p>
+                                </div>
+                            ` : ''}
                         </div>
-                        <span class="px-4 py-2 rounded-lg text-sm font-bold border-2 ${statusColors[asset.status] || 'bg-gray-100 text-gray-800 border-gray-300'}">
-                            ${asset.status}
+                        <span class="px-4 py-2 rounded-lg text-sm font-bold border-2 ${statusColors[unit ? unit.unit_status : asset.status] || 'bg-gray-100 text-gray-800 border-gray-300'}">
+                            ${unit ? unit.unit_status : asset.status}
                         </span>
                     </div>
                 </div>
@@ -441,9 +462,13 @@ try {
     async function quickUpdateStatus(newStatus) {
         if (!currentAsset) return;
 
+        const updateTarget = currentUnit
+            ? `Unit: ${currentUnit.unit_code}`
+            : `Asset: ${currentAsset.asset_name}`;
+
         const result = await Swal.fire({
             title: `Update Status to "${newStatus}"?`,
-            text: `Asset: ${currentAsset.asset_name}`,
+            text: updateTarget,
             icon: 'question',
             showCancelButton: true,
             confirmButtonText: 'Yes, Update',
@@ -455,15 +480,22 @@ try {
 
         try {
             const csrfToken = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+            const requestData = {
+                action: 'update_status',
+                asset_id: currentAsset.id,
+                status: newStatus,
+                csrf_token: csrfToken
+            };
+
+            // If a specific unit was scanned, include unit_id
+            if (currentUnit && currentUnit.unit_id) {
+                requestData.unit_id = currentUnit.unit_id;
+            }
+
             const response = await fetch('../api/quick_asset_update.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'update_status',
-                    asset_id: currentAsset.id,
-                    status: newStatus,
-                    csrf_token: csrfToken
-                })
+                body: JSON.stringify(requestData)
             });
 
             const data = await response.json();

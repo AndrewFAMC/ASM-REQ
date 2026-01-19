@@ -152,7 +152,12 @@ try {
                     dept.full_name as department_approver_name,
                     dept.email as department_approver_email,
                     admin.full_name as admin_approver_name,
-                    admin.email as admin_approver_email
+                    admin.email as admin_approver_email,
+                    office_head.full_name as office_approver_name,
+                    office_head.email as office_approver_email,
+                    releaser.full_name as releaser_name,
+                    returner.full_name as returner_name,
+                    COALESCE(a.serial_number, CONCAT('ID-', a.id)) as asset_code
                 FROM asset_requests ar
                 JOIN assets a ON ar.asset_id = a.id
                 JOIN categories c ON a.category_id = c.id
@@ -161,6 +166,9 @@ try {
                 LEFT JOIN users custodian ON ar.custodian_reviewed_by = custodian.id
                 LEFT JOIN users dept ON ar.department_approved_by = dept.id
                 LEFT JOIN users admin ON ar.final_approved_by = admin.id
+                LEFT JOIN users office_head ON ar.office_approved_by = office_head.id
+                LEFT JOIN users releaser ON ar.released_by = releaser.id
+                LEFT JOIN users returner ON ar.returned_by = returner.id
                 WHERE ar.id = ?
             ");
             $stmt->execute([$requestId]);
@@ -169,6 +177,101 @@ try {
             if (!$request) {
                 throw new Exception('Request not found');
             }
+
+            // Build approval history from the request data
+            $approvalHistory = [];
+
+            // Custodian Review
+            if ($request['custodian_reviewed_by'] && $request['custodian_reviewed_at']) {
+                $approvalHistory[] = [
+                    'approver_name' => $request['custodian_name'],
+                    'approver_role' => 'Custodian',
+                    'status' => 'approved',
+                    'comments' => $request['custodian_review_notes'] ?? '',
+                    'created_at' => $request['custodian_reviewed_at']
+                ];
+            }
+
+            // Office Head Approval
+            if ($request['office_approved_by'] && $request['office_approved_at']) {
+                $approvalHistory[] = [
+                    'approver_name' => $request['office_approver_name'],
+                    'approver_role' => 'Office Head',
+                    'status' => 'approved',
+                    'comments' => $request['office_approval_notes'] ?? '',
+                    'created_at' => $request['office_approved_at']
+                ];
+            }
+
+            // Department Approval
+            if ($request['department_approved_by'] && $request['department_approved_at']) {
+                $approvalHistory[] = [
+                    'approver_name' => $request['department_approver_name'],
+                    'approver_role' => 'Department Head',
+                    'status' => 'approved',
+                    'comments' => '',
+                    'created_at' => $request['department_approved_at']
+                ];
+            }
+
+            // Admin Final Approval
+            if ($request['final_approved_by'] && $request['final_approved_at']) {
+                $approvalHistory[] = [
+                    'approver_name' => $request['admin_approver_name'],
+                    'approver_role' => 'Administrator',
+                    'status' => 'approved',
+                    'comments' => $request['admin_notes'] ?? '',
+                    'created_at' => $request['final_approved_at']
+                ];
+            }
+
+            // Rejection
+            if ($request['status'] === 'rejected' && !empty($request['rejection_reason'])) {
+                $approvalHistory[] = [
+                    'approver_name' => 'System',
+                    'approver_role' => 'Approver',
+                    'status' => 'rejected',
+                    'comments' => $request['rejection_reason'],
+                    'created_at' => $request['approval_date'] ?? $request['request_date']
+                ];
+            }
+
+            // Released
+            if ($request['released_by'] && $request['released_date']) {
+                $approvalHistory[] = [
+                    'approver_name' => $request['releaser_name'],
+                    'approver_role' => 'Asset Releaser',
+                    'status' => 'released',
+                    'comments' => $request['release_notes'] ?? 'Asset released to requester',
+                    'created_at' => $request['released_date']
+                ];
+            }
+
+            // Returned
+            if ($request['returned_by'] && $request['returned_date']) {
+                $returnComment = "Asset returned in {$request['return_condition']} condition";
+                if (!empty($request['return_notes'])) {
+                    $returnComment .= ". Notes: {$request['return_notes']}";
+                }
+                if ($request['days_overdue'] > 0 && !empty($request['late_return_remarks'])) {
+                    $returnComment .= ". Late Return ({$request['days_overdue']} days overdue): {$request['late_return_remarks']}";
+                }
+
+                $approvalHistory[] = [
+                    'approver_name' => $request['returner_name'],
+                    'approver_role' => 'Return Processor',
+                    'status' => $request['days_overdue'] > 0 ? 'late_return' : 'returned',
+                    'comments' => $returnComment,
+                    'created_at' => $request['returned_date']
+                ];
+            }
+
+            // Sort by date
+            usort($approvalHistory, function($a, $b) {
+                return strtotime($a['created_at']) - strtotime($b['created_at']);
+            });
+
+            $request['approval_history'] = $approvalHistory;
 
             echo json_encode([
                 'success' => true,
@@ -885,36 +988,56 @@ try {
                 }
 
                 // Verify asset is assigned to this office via inventory_tags
+                // and check available quantity excluding damaged/missing/under repair/disposed units
                 $tagCheckStmt = $pdo->prepare("
-                    SELECT COUNT(*) as tag_count
-                    FROM inventory_tags
-                    WHERE asset_id = ? AND office_id = ? AND status IN ('Active', 'Available')
+                    SELECT
+                        it.borrowable_quantity,
+                        COALESCE(unavailable_units.unavailable_count, 0) as unavailable_units,
+                        (COALESCE(it.borrowable_quantity, 0) - COALESCE(unavailable_units.unavailable_count, 0)) as office_available
+                    FROM inventory_tags it
+                    LEFT JOIN (
+                        SELECT asset_id, COUNT(*) as unavailable_count
+                        FROM asset_units
+                        WHERE unit_status IN ('Damaged', 'Missing', 'Under Repair', 'Disposed')
+                        GROUP BY asset_id
+                    ) unavailable_units ON it.asset_id = unavailable_units.asset_id
+                    WHERE it.asset_id = ? AND it.office_id = ? AND it.status IN ('Active', 'Available')
                 ");
                 $tagCheckStmt->execute([$assetId, $targetOfficeId]);
                 $tagCheck = $tagCheckStmt->fetch();
 
-                if ($tagCheck['tag_count'] == 0) {
-                    throw new Exception('Asset is not assigned to the selected office');
+                if (!$tagCheck || $tagCheck['office_available'] <= 0) {
+                    throw new Exception('Asset is not available in the selected office - all units assigned, damaged, missing, under repair, or disposed');
                 }
+
+                // Use office available quantity for validation
+                $availableQty = $tagCheck['office_available'];
             } else {
                 // For custodian requests, check remaining quantity in central inventory
-                // Calculate: Total - Inactive - Assigned to Offices
+                // Calculate: Total - Inactive - Assigned to Offices - Unavailable Units (damaged/missing/under repair/disposed)
                 $custodianQtyStmt = $pdo->prepare("
                     SELECT
                         a.quantity,
                         COALESCE(a.inactive_quantity, 0) as inactive,
                         COALESCE(SUM(it.quantity), 0) as assigned_to_offices,
-                        (a.quantity - COALESCE(a.inactive_quantity, 0) - COALESCE(SUM(it.quantity), 0)) as custodian_available
+                        COALESCE(unavailable_units.unavailable_count, 0) as unavailable_units,
+                        (a.quantity - COALESCE(a.inactive_quantity, 0) - COALESCE(SUM(it.quantity), 0) - COALESCE(unavailable_units.unavailable_count, 0)) as custodian_available
                     FROM assets a
                     LEFT JOIN inventory_tags it ON a.id = it.asset_id AND it.status IN ('Active', 'Available')
+                    LEFT JOIN (
+                        SELECT asset_id, COUNT(*) as unavailable_count
+                        FROM asset_units
+                        WHERE unit_status IN ('Damaged', 'Missing', 'Under Repair', 'Disposed')
+                        GROUP BY asset_id
+                    ) unavailable_units ON a.id = unavailable_units.asset_id
                     WHERE a.id = ?
-                    GROUP BY a.id, a.quantity, a.inactive_quantity
+                    GROUP BY a.id, a.quantity, a.inactive_quantity, unavailable_units.unavailable_count
                 ");
                 $custodianQtyStmt->execute([$assetId]);
                 $custodianQty = $custodianQtyStmt->fetch();
 
                 if (!$custodianQty || $custodianQty['custodian_available'] <= 0) {
-                    throw new Exception('Asset is not available in central inventory - all units assigned to offices');
+                    throw new Exception('Asset is not available in central inventory - all units assigned, inactive, or unavailable (damaged/missing/under repair/disposed)');
                 }
 
                 // Use custodian available quantity for validation

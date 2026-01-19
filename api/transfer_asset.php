@@ -81,8 +81,13 @@ function recordTransfer($pdo, $user, $inputData = []) {
     // Use already parsed input data or parse from POST
     $input = !empty($inputData) ? $inputData : $_POST;
 
+    // Use filter_var but convert false to null (false means validation failed or value was null)
     $borrowingId = filter_var($input['borrowing_id'] ?? null, FILTER_VALIDATE_INT);
+    $borrowingId = ($borrowingId === false) ? null : $borrowingId;
+
     $requestId = filter_var($input['request_id'] ?? null, FILTER_VALIDATE_INT);
+    $requestId = ($requestId === false) ? null : $requestId;
+
     $fromPerson = trim($input['from_person'] ?? '');
     $toPerson = trim($input['to_person'] ?? '');
     $toPersonContact = trim($input['to_person_contact'] ?? '');
@@ -159,8 +164,8 @@ function recordTransfer($pdo, $user, $inputData = []) {
         ");
 
         $insertStmt->execute([
-            $borrowingId ?? null,
-            $requestId ?? null,
+            $borrowingId,  // Already null if not provided
+            $requestId,    // Already null if not provided
             $assetId,
             $fromPerson,
             $toPerson,
@@ -362,6 +367,8 @@ function verifyBorrower($pdo, $user, $inputData = []) {
     $input = !empty($inputData) ? $inputData : $_POST;
 
     $requestId = filter_var($input['request_id'] ?? null, FILTER_VALIDATE_INT);
+    $requestId = ($requestId === false) ? null : $requestId;
+
     $returningPersonName = trim($input['returning_person'] ?? '');
 
     if (!$requestId || !$returningPersonName) {

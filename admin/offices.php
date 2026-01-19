@@ -8,6 +8,15 @@ if (!isLoggedIn() || !hasRole('admin')) {
 }
 
 $user = getUserInfo();
+
+// Get current user's campus
+$currentUserCampusId = $user['campus_id'];
+
+// Get current user's campus name
+$stmt = $pdo->prepare("SELECT campus_name FROM campuses WHERE id = ?");
+$stmt->execute([$currentUserCampusId]);
+$currentCampus = $stmt->fetch();
+$currentCampusName = $currentCampus['campus_name'] ?? 'Unknown Campus';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -90,9 +99,10 @@ $user = getUserInfo();
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Campus</label>
-                            <select id="campusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">All Campuses</option>
-                            </select>
+                            <div class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700 cursor-not-allowed">
+                                <?= htmlspecialchars($currentCampusName) ?> (Current)
+                            </div>
+                            <input type="hidden" id="campusFilter" value="<?= $currentUserCampusId ?>">
                         </div>
                         <div class="flex items-end">
                             <button id="applyFilters" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg mr-2">Apply Filters</button>
@@ -167,10 +177,11 @@ $user = getUserInfo();
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700">Campus <span class="text-red-500">*</span></label>
-                            <select id="campusId" name="campus_id" required
-                                    class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">Select Campus</option>
-                            </select>
+                            <div class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-700">
+                                <?= htmlspecialchars($currentCampusName) ?>
+                            </div>
+                            <input type="hidden" id="campusId" name="campus_id" value="<?= $currentUserCampusId ?>" required>
+                            <p class="mt-1 text-xs text-gray-500">Automatically assigned to your campus</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700">Description</label>
@@ -224,7 +235,6 @@ $user = getUserInfo();
 
         // Initialize
         document.addEventListener('DOMContentLoaded', function() {
-            loadCampuses();
             loadOffices();
             initializeEventListeners();
         });
@@ -252,32 +262,6 @@ $user = getUserInfo();
             });
         }
 
-        async function loadCampuses() {
-            try {
-                const response = await fetch('../api/offices.php?action=get_campuses');
-                const result = await response.json();
-
-                if (result.success) {
-                    campuses = result.data;
-                    populateCampusDropdowns();
-                }
-            } catch (error) {
-                console.error('Error loading campuses:', error);
-                showAlert('error', 'Failed to load campuses');
-            }
-        }
-
-        function populateCampusDropdowns() {
-            const campusFilter = document.getElementById('campusFilter');
-            const campusId = document.getElementById('campusId');
-
-            campuses.forEach(campus => {
-                const option1 = new Option(campus.campus_name, campus.id);
-                const option2 = new Option(campus.campus_name, campus.id);
-                campusFilter.add(option1);
-                campusId.add(option2);
-            });
-        }
 
         async function loadOffices() {
             const search = document.getElementById('searchInput').value;
@@ -369,12 +353,12 @@ $user = getUserInfo();
                 document.getElementById('officeName').value = office.office_name;
                 document.getElementById('sectionCode').value = office.section_code || '';
                 document.getElementById('floor').value = office.floor || '';
-                document.getElementById('campusId').value = office.campus_id;
                 document.getElementById('description').value = office.description || '';
                 submitBtn.innerHTML = '<i class="fas fa-save mr-1"></i>Update Office';
             } else {
                 modalTitle.textContent = 'Add Office';
                 officeForm.reset();
+                // Campus is already set via PHP, no need to reset it
                 submitBtn.innerHTML = '<i class="fas fa-save mr-1"></i>Save Office';
             }
             officeModal.classList.remove('hidden');
@@ -525,7 +509,7 @@ $user = getUserInfo();
 
         function clearFilters() {
             document.getElementById('searchInput').value = '';
-            document.getElementById('campusFilter').value = '';
+            // Campus filter is fixed to current user's campus, no need to clear
             loadOffices();
         }
 

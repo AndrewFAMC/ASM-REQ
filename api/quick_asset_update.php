@@ -96,9 +96,10 @@ try {
  */
 function handleUpdateStatus($pdo, $assetId, $asset, $input, $user) {
     $newStatus = $input['status'] ?? '';
+    $unitId = $input['unit_id'] ?? null; // Optional: specific unit to update
 
     // Validate status
-    $validStatuses = ['Available', 'Unavailable', 'In Use', 'Damaged', 'Missing', 'Under Repair', 'Retired'];
+    $validStatuses = ['Available', 'Unavailable', 'In Use', 'Damaged', 'Missing', 'Under Repair', 'Retired', 'Disposed'];
     if (!in_array($newStatus, $validStatuses)) {
         http_response_code(400);
         echo json_encode(['success' => false, 'message' => 'Invalid status value']);
@@ -107,36 +108,86 @@ function handleUpdateStatus($pdo, $assetId, $asset, $input, $user) {
 
     $oldStatus = $asset['status'];
 
-    // Update asset status
-    $stmt = $pdo->prepare("
-        UPDATE assets
-        SET status = ?,
-            updated_at = NOW()
-        WHERE id = ?
-    ");
-    $stmt->execute([$newStatus, $assetId]);
+    // Check if asset has individual tracking
+    if ($asset['track_individually'] && $unitId) {
+        // Update specific unit status
+        $unitCheckStmt = $pdo->prepare("SELECT unit_status, unit_code FROM asset_units WHERE id = ? AND asset_id = ?");
+        $unitCheckStmt->execute([$unitId, $assetId]);
+        $unit = $unitCheckStmt->fetch();
 
-    // Log to activity log
-    $activityStmt = $pdo->prepare("
-        INSERT INTO activity_log (asset_id, action, description, performed_by, created_at)
-        VALUES (?, 'status_update', ?, ?, NOW())
-    ");
-    $description = "Status changed from '{$oldStatus}' to '{$newStatus}' via Quick Scan Update";
-    $activityStmt->execute([$assetId, $description, $user['full_name']]);
+        if (!$unit) {
+            http_response_code(404);
+            echo json_encode(['success' => false, 'message' => 'Unit not found']);
+            exit;
+        }
 
-    // Log scan
+        $oldUnitStatus = $unit['unit_status'];
+
+        // Update unit status
+        $unitStmt = $pdo->prepare("
+            UPDATE asset_units
+            SET unit_status = ?,
+                updated_at = NOW()
+            WHERE id = ?
+        ");
+        $unitStmt->execute([$newStatus, $unitId]);
+
+        // Log to unit history
+        $historyStmt = $pdo->prepare("
+            INSERT INTO unit_history (unit_id, action, old_value, new_value, description, performed_by, performed_by_name, created_at)
+            VALUES (?, 'status_change', ?, ?, ?, ?, ?, NOW())
+        ");
+        $description = "Status updated via Quick Scan Update";
+        $historyStmt->execute([$unitId, $oldUnitStatus, $newStatus, $description, $user['id'], $user['full_name']]);
+
+        // Log to activity log
+        $activityStmt = $pdo->prepare("
+            INSERT INTO activity_log (asset_id, action, description, performed_by, created_at)
+            VALUES (?, 'unit_status_update', ?, ?, NOW())
+        ");
+        $activityDescription = "Unit {$unit['unit_code']} status changed from '{$oldUnitStatus}' to '{$newStatus}' via Quick Scan Update";
+        $activityStmt->execute([$assetId, $activityDescription, $user['full_name']]);
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Unit status updated successfully',
+            'new_status' => $newStatus,
+            'old_status' => $oldUnitStatus,
+            'unit_code' => $unit['unit_code']
+        ]);
+
+    } else {
+        // Update overall asset status (legacy behavior)
+        $stmt = $pdo->prepare("
+            UPDATE assets
+            SET status = ?,
+                updated_at = NOW()
+            WHERE id = ?
+        ");
+        $stmt->execute([$newStatus, $assetId]);
+
+        // Log to activity log
+        $activityStmt = $pdo->prepare("
+            INSERT INTO activity_log (asset_id, action, description, performed_by, created_at)
+            VALUES (?, 'status_update', ?, ?, NOW())
+        ");
+        $description = "Status changed from '{$oldStatus}' to '{$newStatus}' via Quick Scan Update";
+        $activityStmt->execute([$assetId, $description, $user['full_name']]);
+
+        echo json_encode([
+            'success' => true,
+            'message' => 'Asset status updated successfully',
+            'new_status' => $newStatus,
+            'old_status' => $oldStatus
+        ]);
+    }
+
+    // Log scan (common for both)
     $scanStmt = $pdo->prepare("
         INSERT INTO asset_scans (asset_id, scan_type, scanned_by, notes, created_at)
         VALUES (?, 'Status Check', ?, ?, NOW())
     ");
     $scanStmt->execute([$assetId, $user['full_name'], "Status updated to: {$newStatus}"]);
-
-    echo json_encode([
-        'success' => true,
-        'message' => 'Status updated successfully',
-        'new_status' => $newStatus,
-        'old_status' => $oldStatus
-    ]);
 }
 
 /**
