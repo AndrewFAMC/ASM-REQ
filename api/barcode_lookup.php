@@ -23,7 +23,7 @@ $user = getUserInfo();
 $campusId = $user['campus_id'];
 
 try {
-    // Search for asset by barcode, serial number, tag number, or asset name
+    // Search for asset by barcode, serial number, tag number, unit code, or asset name
     // First try to find by tag number in inventory_tags table
     $tagStmt = $pdo->prepare("
         SELECT a.id as asset_id
@@ -40,6 +40,22 @@ try {
 
     // If found by tag number, use that asset_id, otherwise search normally
     $assetIdFromTag = $tagResult ? $tagResult['asset_id'] : null;
+
+    // ENHANCEMENT: Search by unit code or unit serial number
+    $unitStmt = $pdo->prepare("
+        SELECT au.asset_id, au.id as unit_id, au.unit_code, au.unit_serial_number
+        FROM asset_units au
+        JOIN assets a ON au.asset_id = a.id
+        WHERE a.campus_id = ?
+        AND (au.unit_code LIKE ? OR au.unit_serial_number LIKE ?)
+        LIMIT 1
+    ");
+    $unitStmt->execute([$campusId, $searchPattern, $searchPattern]);
+    $unitResult = $unitStmt->fetch();
+
+    // If found by unit, use that asset_id and store unit info
+    $assetIdFromUnit = $unitResult ? $unitResult['asset_id'] : null;
+    $unitInfo = $unitResult ?: null;
 
     $stmt = $pdo->prepare("
         SELECT
@@ -63,6 +79,7 @@ try {
             a.serial_number LIKE ? OR
             LOWER(a.asset_name) LIKE ? OR
             a.id = ? OR
+            a.id = ? OR
             a.id = ?
         )
         LIMIT 1
@@ -76,7 +93,8 @@ try {
         $searchPattern,
         strtolower($searchPattern),
         $assetId,
-        $assetIdFromTag
+        $assetIdFromTag,
+        $assetIdFromUnit
     ]);
 
     $asset = $stmt->fetch();
@@ -216,6 +234,19 @@ try {
     ");
     $logScanStmt->execute([$asset['id'], $user['full_name']]);
 
+    // Get full unit info if asset has individual tracking
+    $unitsData = [];
+    if ($asset['track_individually']) {
+        $unitsStmt = $pdo->prepare("
+            SELECT id, unit_code, unit_serial_number, unit_status, condition_rating, assigned_to_office
+            FROM asset_units
+            WHERE asset_id = ?
+            ORDER BY unit_code
+        ");
+        $unitsStmt->execute([$asset['id']]);
+        $unitsData = $unitsStmt->fetchAll();
+    }
+
     // Return comprehensive asset data
     echo json_encode([
         'success' => true,
@@ -243,8 +274,11 @@ try {
             'remarks' => $asset['remarks'],
             'supplier' => $asset['supplier'],
             'created_at' => $asset['created_at'],
-            'updated_at' => $asset['updated_at']
+            'updated_at' => $asset['updated_at'],
+            'track_individually' => $asset['track_individually']
         ],
+        'unit_searched' => $unitInfo,  // The specific unit that was searched (if applicable)
+        'all_units' => $unitsData,     // All units for this asset (if individually tracked)
         'depreciation' => $depreciationInfo,
         'current_borrowing' => $currentBorrowing,
         'maintenance_history' => $maintenanceHistory,

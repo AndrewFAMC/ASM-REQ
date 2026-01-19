@@ -11,6 +11,7 @@
  */
 
 require_once dirname(__DIR__) . '/config.php';
+require_once dirname(__DIR__) . '/includes/email/EmailQueue.php';
 
 // Require authentication
 requireLogin();
@@ -883,21 +884,50 @@ try {
                     throw new Exception('Office not found');
                 }
 
-                // Verify asset is assigned to this office
-                if ($asset['assigned_to'] != $targetOfficeId) {
+                // Verify asset is assigned to this office via inventory_tags
+                $tagCheckStmt = $pdo->prepare("
+                    SELECT COUNT(*) as tag_count
+                    FROM inventory_tags
+                    WHERE asset_id = ? AND office_id = ? AND status IN ('Active', 'Available')
+                ");
+                $tagCheckStmt->execute([$assetId, $targetOfficeId]);
+                $tagCheck = $tagCheckStmt->fetch();
+
+                if ($tagCheck['tag_count'] == 0) {
                     throw new Exception('Asset is not assigned to the selected office');
                 }
             } else {
-                // For custodian requests, asset should not be assigned to any office
-                if (!empty($asset['assigned_to'])) {
-                    throw new Exception('Asset is not available in central inventory');
+                // For custodian requests, check remaining quantity in central inventory
+                // Calculate: Total - Inactive - Assigned to Offices
+                $custodianQtyStmt = $pdo->prepare("
+                    SELECT
+                        a.quantity,
+                        COALESCE(a.inactive_quantity, 0) as inactive,
+                        COALESCE(SUM(it.quantity), 0) as assigned_to_offices,
+                        (a.quantity - COALESCE(a.inactive_quantity, 0) - COALESCE(SUM(it.quantity), 0)) as custodian_available
+                    FROM assets a
+                    LEFT JOIN inventory_tags it ON a.id = it.asset_id AND it.status IN ('Active', 'Available')
+                    WHERE a.id = ?
+                    GROUP BY a.id, a.quantity, a.inactive_quantity
+                ");
+                $custodianQtyStmt->execute([$assetId]);
+                $custodianQty = $custodianQtyStmt->fetch();
+
+                if (!$custodianQty || $custodianQty['custodian_available'] <= 0) {
+                    throw new Exception('Asset is not available in central inventory - all units assigned to offices');
                 }
+
+                // Use custodian available quantity for validation
+                $availableQty = $custodianQty['custodian_available'];
             }
 
             // Check available quantity
-            $availableQty = $asset['quantity'] - ($asset['inactive_quantity'] ?? 0);
+            if (!isset($availableQty)) {
+                $availableQty = $asset['quantity'] - ($asset['inactive_quantity'] ?? 0);
+            }
+
             if ($quantity > $availableQty) {
-                throw new Exception("Only {$availableQty} units available");
+                throw new Exception("Only {$availableQty} units available in " . ($requestSource === 'office' ? 'this office' : 'central inventory'));
             }
 
             // Create the request
@@ -944,7 +974,11 @@ try {
                         throw new Exception("No office head found for the selected office");
                     }
 
+                    // Initialize EmailQueue
+                    $emailQueue = new EmailQueue($pdo);
+
                     foreach ($approvers as $approver) {
+                        // Create in-app notification
                         createNotification(
                             $pdo,
                             $approver['id'],
@@ -962,6 +996,40 @@ try {
                                 'request_id' => $requestId,
                                 'role' => 'office'
                             ]
+                        );
+
+                        // Queue email notification to office head
+                        $emailSubject = "New Asset Request from {$user['full_name']}";
+                        $emailBody = "
+                            <h2>New Office Asset Request</h2>
+                            <p>You have received a new asset request that requires your approval.</p>
+
+                            <h3>Request Details:</h3>
+                            <ul>
+                                <li><strong>Requester:</strong> {$user['full_name']} ({$user['email']})</li>
+                                <li><strong>Asset:</strong> {$asset['asset_name']}</li>
+                                <li><strong>Quantity:</strong> {$quantity}</li>
+                                <li><strong>Purpose:</strong> {$purpose}</li>
+                                <li><strong>Expected Return:</strong> {$expectedReturnDate}</li>
+                                <li><strong>Request ID:</strong> #{$requestId}</li>
+                            </ul>
+
+                            <p><strong>Action Required:</strong> Please log in to review and approve or reject this request.</p>
+
+                            <p><a href='" . ($_SERVER['REQUEST_SCHEME'] ?? 'http') . "://{$_SERVER['HTTP_HOST']}/AMS-REQ/office/approve_requests.php' style='background-color: #4F46E5; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block;'>Review Request</a></p>
+
+                            <hr>
+                            <p style='font-size: 12px; color: #666;'>This is an automated notification from the Asset Management System.</p>
+                        ";
+
+                        $emailQueue->add(
+                            $approver['email'],
+                            $approver['full_name'],
+                            $emailSubject,
+                            $emailBody,
+                            'high',
+                            'request',
+                            $requestId
                         );
                     }
                 } else {

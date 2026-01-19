@@ -43,27 +43,28 @@ try {
             }
 
             // Get available assets from this office
-            // Assets are associated with offices through assignment or location
+            // Assets are associated with offices through inventory_tags
             $stmt = $pdo->prepare("
                 SELECT
                     a.id,
                     a.asset_name,
                     a.serial_number,
                     a.description,
-                    a.status,
-                    a.quantity,
+                    it.status,
+                    it.quantity as quantity,
                     a.value,
                     c.category_name,
                     c.id as category_id,
                     o.office_name,
-                    a.inactive_quantity,
-                    (a.quantity - COALESCE(a.inactive_quantity, 0)) as available_quantity
-                FROM assets a
+                    it.borrowable_quantity,
+                    COALESCE(it.borrowable_quantity, 0) as available_quantity
+                FROM inventory_tags it
+                JOIN assets a ON it.asset_id = a.id
                 JOIN categories c ON a.category_id = c.id
-                LEFT JOIN offices o ON CAST(a.assigned_to AS UNSIGNED) = o.id
-                WHERE CAST(a.assigned_to AS UNSIGNED) = ?
-                    AND a.status IN ('Available', 'Unavailable')
-                    AND (a.quantity - COALESCE(a.inactive_quantity, 0)) > 0
+                JOIN offices o ON it.office_id = o.id
+                WHERE it.office_id = ?
+                    AND it.status IN ('Active', 'Available')
+                    AND COALESCE(it.borrowable_quantity, 0) > 0
                 ORDER BY a.asset_name ASC
             ");
             $stmt->execute([$officeId]);
@@ -82,7 +83,7 @@ try {
             $campusId = $user['campus_id'];
 
             // Get available assets from custodian/central inventory
-            // These are assets not assigned to any specific office
+            // Calculate remaining quantity after office assignments
             $stmt = $pdo->prepare("
                 SELECT
                     a.id,
@@ -95,14 +96,16 @@ try {
                     c.category_name,
                     c.id as category_id,
                     a.inactive_quantity,
-                    (a.quantity - COALESCE(a.inactive_quantity, 0)) as available_quantity,
+                    COALESCE(SUM(it.quantity), 0) as assigned_to_offices,
+                    (a.quantity - COALESCE(a.inactive_quantity, 0) - COALESCE(SUM(it.quantity), 0)) as available_quantity,
                     'Central Inventory' as location
                 FROM assets a
                 JOIN categories c ON a.category_id = c.id
+                LEFT JOIN inventory_tags it ON a.id = it.asset_id AND it.status IN ('Active', 'Available')
                 WHERE a.campus_id = ?
-                    AND (a.assigned_to IS NULL OR a.assigned_to = '')
                     AND a.status IN ('Available', 'Unavailable')
-                    AND (a.quantity - COALESCE(a.inactive_quantity, 0)) > 0
+                GROUP BY a.id, a.asset_name, a.serial_number, a.description, a.status, a.quantity, a.value, c.category_name, c.id, a.inactive_quantity
+                HAVING available_quantity > 0
                 ORDER BY a.asset_name ASC
             ");
             $stmt->execute([$campusId]);

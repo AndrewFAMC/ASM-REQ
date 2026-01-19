@@ -215,9 +215,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $tagNumber = $_POST['tag_number'];
                 $quantity = (int)($_POST['quantity'] ?? 1);
                 $custodianUserId = $user['id'];
+                $selectedUnitIds = !empty($_POST['selected_unit_ids']) ? explode(',', $_POST['selected_unit_ids']) : [];
 
                 // Check if asset has enough quantity
-                $currentAsset = fetchOne($pdo, "SELECT quantity FROM assets WHERE id = ?", [$assetId]);
+                $currentAsset = fetchOne($pdo, "SELECT quantity, track_individually FROM assets WHERE id = ?", [$assetId]);
                 if ($currentAsset['quantity'] < $quantity) {
                     throw new Exception("Not enough quantity available. Current quantity: {$currentAsset['quantity']}");
                 }
@@ -232,17 +233,49 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 ]);
                 $tagId = $pdo->lastInsertId();
 
-                // 2. Decrease asset quantity and assign to office
+                // 2. If individual tracking is enabled and units are selected, link them
+                if ($currentAsset['track_individually'] && !empty($selectedUnitIds)) {
+                    foreach ($selectedUnitIds as $unitId) {
+                        $unitId = (int)trim($unitId);
+                        // Link unit to tag
+                        executeQuery($pdo, "
+                            INSERT INTO tag_units (tag_id, unit_id, is_active)
+                            VALUES (?, ?, TRUE)
+                        ", [$tagId, $unitId]);
+
+                        // Update unit status to 'In Use'
+                        executeQuery($pdo, "
+                            UPDATE asset_units
+                            SET unit_status = 'In Use'
+                            WHERE id = ?
+                        ", [$unitId]);
+
+                        // Log unit assignment
+                        executeQuery($pdo, "
+                            INSERT INTO unit_history (unit_id, action, new_value, description, performed_by, performed_by_name)
+                            VALUES (?, 'ASSIGNED', ?, ?, ?, ?)
+                        ", [
+                            $unitId,
+                            "Tag: {$tagNumber}",
+                            "Assigned to office via tag {$tagNumber}",
+                            $custodianUserId,
+                            $user['full_name']
+                        ]);
+                    }
+                }
+
+                // 3. Decrease asset quantity and assign to office
                 executeQuery($pdo, "UPDATE assets SET quantity = quantity - ?, assigned_to = ? WHERE id = ?", [$quantity, $officeId, $assetId]);
 
-                // 3. Update asset status to 'In Use' if quantity becomes 0 (all units assigned)
+                // 4. Update asset status to 'In Use' if quantity becomes 0 (all units assigned)
                 $newQuantity = $currentAsset['quantity'] - $quantity;
                 if ($newQuantity == 0) {
                     executeQuery($pdo, "UPDATE assets SET status = 'In Use' WHERE id = ?", [$assetId]);
                 }
 
-                // 4. Log the activity
-                logActivity($pdo, $assetId, 'TAG_GENERATED', "Inventory tag #{$tagNumber} generated for office ID #{$officeId} by custodian. Quantity: {$quantity}");
+                // 5. Log the activity
+                $unitsInfo = !empty($selectedUnitIds) ? " (" . count($selectedUnitIds) . " individual units tracked)" : "";
+                logActivity($pdo, $assetId, 'TAG_GENERATED', "Inventory tag #{$tagNumber} generated for office ID #{$officeId} by custodian. Quantity: {$quantity}{$unitsInfo}");
 
                 $pdo->commit();
 
@@ -715,6 +748,21 @@ $csrfToken = $_SESSION['csrf_token'];
                     <div>
                         <label for="quantity" class="block text-sm font-medium text-gray-700">Quantity (Qty)</label>
                         <input type="number" name="quantity" id="quantity" value="1" min="1" class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                </div>
+
+                <!-- Individual Tracking Info (Auto-enabled for quantity > 1) -->
+                <div id="individual-tracking-info" class="md:col-span-2 bg-green-50 border border-green-300 rounded-lg p-4" style="display: none;">
+                    <div class="flex items-start gap-3">
+                        <i class="fas fa-check-circle text-green-600 text-2xl"></i>
+                        <div class="flex-1">
+                            <span class="font-semibold text-green-900">
+                                Individual Unit Tracking Enabled
+                            </span>
+                            <p class="text-sm text-green-700 mt-1">
+                                Each unit will automatically get a unique serial number (e.g., CHAIR-001, CHAIR-002, CHAIR-003...). This ensures full accountability for every item.
+                            </p>
+                        </div>
                     </div>
                 </div>
                 <div>
@@ -1468,7 +1516,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const generateTagModal = document.getElementById('generateTagModal');
 
-    function openGenerateTagModal(office, asset) {
+    window.openGenerateTagModal = async function(office, asset) {
         // 1. Populate the modal with data
         document.getElementById('gt_asset_id').value = asset.id;
         document.getElementById('gt_office_id').value = office.id;
@@ -1685,6 +1733,17 @@ document.addEventListener('DOMContentLoaded', function() {
     unitPriceInput.addEventListener('input', calculateTotalValue);
     quantityInput.addEventListener('input', calculateTotalValue);
 
+    // Show individual tracking info when quantity > 1 (automatic, no checkbox needed)
+    quantityInput.addEventListener('input', function() {
+        const trackingInfo = document.getElementById('individual-tracking-info');
+        if (parseInt(this.value) > 1) {
+            trackingInfo.style.display = 'block';
+        } else {
+            trackingInfo.style.display = 'none';
+        }
+        calculateTotalValue();
+    });
+
 
     addAssetForm.addEventListener('submit', async function(e) {
         e.preventDefault();
@@ -1694,19 +1753,32 @@ document.addEventListener('DOMContentLoaded', function() {
         // AUTO-ASSIGN CAMPUS ID - Critical for data integrity
         data.campus_id = window.campusId;
 
+        const quantity = parseInt(data.quantity) || 1;
+
         const res = await apiRequest('dashboard.php', 'add_asset', data);
 
         if (res.success) {
-            // Check if there's a warning message
-            if (res.warning) {
+            // Backend already creates units automatically for quantity > 1
+            // Show enhanced message if units were created
+            if (quantity > 1 && res.data && res.data.units_created) {
                 Swal.fire({
                     icon: 'success',
-                    title: 'Asset Added Successfully!',
-                    html: `<p>New asset has been added and is now available in inventory.</p><p class="text-yellow-600 mt-2"><i class="fas fa-exclamation-triangle"></i> ${res.warning}</p>`,
+                    title: 'Asset Added with Individual Tracking!',
+                    html: `<p>Asset created successfully!</p><p class="text-green-600 mt-2"><i class="fas fa-check-circle"></i> ${res.data.units_created} individual units created with unique serial numbers</p>`,
                     confirmButtonText: 'OK'
                 });
             } else {
-                Swal.fire('Success!', 'New asset has been added and is now available in inventory.', 'success');
+                // Standard success message
+                if (res.warning) {
+                    Swal.fire({
+                        icon: 'success',
+                        title: 'Asset Added Successfully!',
+                        html: `<p>New asset has been added and is now available in inventory.</p><p class="text-yellow-600 mt-2"><i class="fas fa-exclamation-triangle"></i> ${res.warning}</p>`,
+                        confirmButtonText: 'OK'
+                    });
+                } else {
+                    Swal.fire('Success!', 'New asset has been added and is now available in inventory.', 'success');
+                }
             }
             closeAddAssetModal();
             loadAllAssets(); // Refresh the asset list
@@ -1760,6 +1832,9 @@ document.addEventListener('DOMContentLoaded', function() {
     showTab('manage-assets');
 });
 </script>
+
+<!-- Individual Tracking Enhancement -->
+<script src="individual_tracking_enhancement.js"></script>
 
 </body>
 </html>

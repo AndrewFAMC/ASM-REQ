@@ -60,7 +60,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                             it.verified_at,
                             it.borrowable_quantity,
                             a.asset_name,
-                            u_verifier.full_name as verified_by
+                            a.track_individually,
+                            u_verifier.full_name as verified_by,
+                            (SELECT COUNT(*) FROM tag_units tu WHERE tu.tag_id = it.id) as unit_count
                         FROM inventory_tags it
                         JOIN assets a ON it.asset_id = a.id
                         LEFT JOIN users u_verifier ON it.verified_by_user_id = u_verifier.id
@@ -97,16 +99,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $pdo->beginTransaction();
                 $tagId = $_POST['tag_id'];
 
-                // Get asset_id from tag
-                $tag = fetchOne($pdo, "SELECT asset_id FROM inventory_tags WHERE id = ? AND office_id = ?", [$tagId, $user['office_id']]);
+                // Get asset_id and quantity from tag
+                $tag = fetchOne($pdo, "SELECT asset_id, quantity FROM inventory_tags WHERE id = ? AND office_id = ?", [$tagId, $user['office_id']]);
                 if (!$tag) throw new Exception("Tag not found or access denied.");
 
-                // Update tag status to Active
-                executeQuery($pdo, "UPDATE inventory_tags SET status = 'Active', verified_by_user_id = ?, verified_at = NOW() WHERE id = ?", [$user['id'], $tagId]);
-                // Update main asset status to Active
-                executeQuery($pdo, "UPDATE assets SET status = 'Active' WHERE id = ?", [$tag['asset_id']]);
+                // Update tag status to Available and set borrowable quantity
+                $borrowableQty = $tag['quantity'] ?? 1;
+                executeQuery($pdo, "UPDATE inventory_tags SET status = 'Available', is_borrowable = 1, borrowable_quantity = ?, verified_by_user_id = ?, verified_at = NOW() WHERE id = ?", [$borrowableQty, $user['id'], $tagId]);
+                // Update main asset status to Available
+                executeQuery($pdo, "UPDATE assets SET status = 'Available' WHERE id = ?", [$tag['asset_id']]);
 
-                logActivity($pdo, $tag['asset_id'], 'ASSET_VERIFIED', "Office user {$user['full_name']} verified receipt of the asset.");
+                logActivity($pdo, $tag['asset_id'], 'ASSET_VERIFIED', "Office user {$user['full_name']} verified receipt of the asset. Set as borrowable with quantity: {$borrowableQty}.");
                 $pdo->commit();
                 echo json_encode(['success' => true, 'message' => 'Asset receipt verified successfully!']);
                 break;
@@ -615,10 +618,15 @@ try {
                 <div>
                     <label for="us_status" class="block text-sm font-medium text-gray-700">New Status</label>
                     <select name="status" id="us_status" required class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500">
-                        <option value="Active">Active / In Use</option>
-                        <option value="In Storage">In Storage</option>
-                        <option value="For Repair">For Repair</option>
+                        <option value="Available">Available</option>
+                        <option value="Active">Active</option>
+                        <option value="Unavailable">Unavailable</option>
+                        <option value="Damaged">Damaged</option>
                         <option value="Missing">Missing</option>
+                        <option value="Under Repair">Under Repair</option>
+                        <option value="Retired">Retired</option>
+                        <option value="Disposed">Disposed</option>
+                        <option value="Transferred">Transferred</option>
                     </select>
                 </div>
                 <div>
@@ -693,7 +701,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     const row = document.createElement('tr');
                     row.className = 'border-b border-gray-200 hover:bg-gray-100';
                     row.innerHTML = `
-                        <td class="py-3 px-6 text-left whitespace-nowrap">${asset.asset_name}</td>
+                        <td class="py-3 px-6 text-left whitespace-nowrap">
+                            ${asset.asset_name}
+                            ${asset.track_individually && asset.unit_count > 0 ? `<span class="ml-2 text-xs text-blue-600"><i class="fas fa-layer-group"></i> ${asset.unit_count} units</span>` : ''}
+                        </td>
                         <td class="py-3 px-6 text-left"><span class="font-mono">${asset.tag_number}</span></td>
                         <td class="py-3 px-6 text-center"><span class="text-xs font-semibold inline-block py-1 px-2 uppercase rounded-full ${getStatusClass(asset.status)}">${asset.status}</span></td>
                         <td class="py-3 px-6 text-center">${asset.borrowable_quantity || 0}</td>
@@ -701,6 +712,7 @@ document.addEventListener('DOMContentLoaded', function() {
                         <td class="py-3 px-6 text-left">${new Date(asset.verified_at).toLocaleString()}</td>
                         <td class="py-3 px-6 text-center">
                             <div class="flex item-center justify-center">
+                                ${asset.track_individually && asset.unit_count > 0 ? `<a href="view_assets_detailed.php?tag_id=${asset.id}" class="w-4 mr-2 transform hover:text-indigo-500 hover:scale-110" title="View Unit Details"><i class="fas fa-list"></i></a>` : ''}
                                 <button onclick="setBorrowable(${asset.id}, ${asset.borrowable_quantity || 0})" class="w-4 mr-2 transform hover:text-green-500 hover:scale-110" title="Set Borrowable Quantity"><i class="fas fa-hand-holding"></i></button>
                                 <button onclick="openUpdateStatusModal(${asset.id}, '${asset.status}')" class="w-4 mr-2 transform hover:text-purple-500 hover:scale-110" title="Update Status"><i class="fas fa-edit"></i></button>
                                 <button onclick="openPrintableTagModal(${asset.id})" class="w-4 mr-2 transform hover:text-blue-500 hover:scale-110" title="Print Tag"><i class="fas fa-print"></i></button>
@@ -909,18 +921,25 @@ document.addEventListener('DOMContentLoaded', function() {
         if (!status) return 'text-gray-600 bg-gray-200';
         switch (status.toLowerCase()) {
             case 'active':
-            case 'in use':
                 return 'text-green-600 bg-green-200';
-            case 'in storage':
+            case 'available':
                 return 'text-blue-600 bg-blue-200';
-            case 'for repair':
-                return 'text-orange-600 bg-orange-200';
-            case 'missing':
+            case 'unavailable':
+                return 'text-gray-600 bg-gray-300';
+            case 'damaged':
                 return 'text-red-600 bg-red-200';
+            case 'missing':
+                return 'text-red-800 bg-red-300';
+            case 'under repair':
+                return 'text-orange-600 bg-orange-200';
+            case 'retired':
+                return 'text-purple-600 bg-purple-200';
             case 'pending verification':
                 return 'text-yellow-800 bg-yellow-200';
-            case 'declined':
-                return 'text-pink-600 bg-pink-200';
+            case 'disposed':
+                return 'text-gray-700 bg-gray-400';
+            case 'transferred':
+                return 'text-indigo-600 bg-indigo-200';
             default:
                 return 'text-gray-600 bg-gray-200';
         }

@@ -7,9 +7,15 @@ if (!isLoggedIn() || !hasRole('admin')) {
     exit;
 }
 
-// Get campuses for dropdown
-$stmt = $pdo->query("SELECT id, campus_name FROM campuses ORDER BY campus_name");
-$campuses = $stmt->fetchAll();
+// Get current user's campus
+$userInfo = getUserInfo();
+$currentUserCampusId = $userInfo['campus_id'];
+
+// Get current user's campus name
+$stmt = $pdo->prepare("SELECT campus_name FROM campuses WHERE id = ?");
+$stmt->execute([$currentUserCampusId]);
+$currentCampus = $stmt->fetch();
+$currentCampusName = $currentCampus['campus_name'] ?? 'Unknown Campus';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -105,12 +111,10 @@ $campuses = $stmt->fetchAll();
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Campus</label>
-                            <select id="campusFilter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">All Campuses</option>
-                                <?php foreach ($campuses as $campus): ?>
-                                    <option value="<?= $campus['id'] ?>"><?= htmlspecialchars($campus['campus_name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                            <div class="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-700 cursor-not-allowed">
+                                <?= htmlspecialchars($currentCampusName) ?> (Current)
+                            </div>
+                            <input type="hidden" id="campusFilter" value="<?= $currentUserCampusId ?>">
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -295,12 +299,11 @@ $campuses = $stmt->fetchAll();
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700">Campus</label>
-                            <select id="campusId" name="campus_id" class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">Select Campus</option>
-                                <?php foreach ($campuses as $campus): ?>
-                                    <option value="<?= $campus['id'] ?>"><?= htmlspecialchars($campus['campus_name']) ?></option>
-                                <?php endforeach; ?>
-                            </select>
+                            <div class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm bg-gray-50 text-gray-700">
+                                <?= htmlspecialchars($currentCampusName) ?>
+                            </div>
+                            <input type="hidden" id="campusId" name="campus_id" value="<?= $currentUserCampusId ?>">
+                            <p class="mt-1 text-xs text-gray-500">Automatically assigned to your campus</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700">Office</label>

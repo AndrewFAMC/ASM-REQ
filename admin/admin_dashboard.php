@@ -19,50 +19,56 @@ if ($role !== 'admin') {
 $USER_CAMPUS_ID = (int)($user['campus_id'] ?? 0);
 
 // Dashboard data for charts and analytics
-function getDashboardData($pdo) {
+function getDashboardData($pdo, $campus_id) {
     try {
         $data = [];
 
-        // Asset status distribution
-        $stmt = $pdo->query("
+        // Asset status distribution (filtered by campus)
+        $stmt = $pdo->prepare("
             SELECT status, COUNT(*) as count
             FROM assets
+            WHERE campus_id = ?
             GROUP BY status
             ORDER BY count DESC
         ");
+        $stmt->execute([$campus_id]);
         $data['asset_status'] = $stmt->fetchAll();
 
-        // Monthly asset acquisitions (last 12 months)
+        // Monthly asset acquisitions (last 12 months, filtered by campus)
         $stmt = $pdo->prepare("
             SELECT
                 DATE_FORMAT(created_at, '%Y-%m') as month,
                 COUNT(*) as count
             FROM assets
             WHERE created_at >= DATE_SUB(NOW(), INTERVAL 12 MONTH)
+            AND campus_id = ?
             GROUP BY DATE_FORMAT(created_at, '%Y-%m')
             ORDER BY month
         ");
-        $stmt->execute();
+        $stmt->execute([$campus_id]);
         $data['monthly_acquisitions'] = $stmt->fetchAll();
 
-        // Request status distribution
-        $stmt = $pdo->query("
+        // Request status distribution (filtered by campus)
+        $stmt = $pdo->prepare("
             SELECT status, COUNT(*) as count
             FROM asset_requests
+            WHERE campus_id = ?
             GROUP BY status
             ORDER BY count DESC
         ");
+        $stmt->execute([$campus_id]);
         $data['request_status'] = $stmt->fetchAll();
 
-        // Top categories by asset count
-        $stmt = $pdo->query("
+        // Top categories by asset count (filtered by campus)
+        $stmt = $pdo->prepare("
             SELECT cat.category_name, COUNT(a.id) as count
             FROM categories cat
-            LEFT JOIN assets a ON cat.id = a.category_id
+            LEFT JOIN assets a ON cat.id = a.category_id AND a.campus_id = ?
             GROUP BY cat.id, cat.category_name
             ORDER BY count DESC
             LIMIT 10
         ");
+        $stmt->execute([$campus_id]);
         $data['top_categories'] = $stmt->fetchAll();
 
         return $data;
@@ -73,29 +79,35 @@ function getDashboardData($pdo) {
 }
 
 // Dashboard statistics
-function getAdminStats($pdo) {
+function getAdminStats($pdo, $campus_id) {
     try {
         $stats = [];
 
-        // Total assets
-        $stmt = $pdo->query("SELECT COUNT(*) as total_assets FROM assets");
+        // Get campus name
+        $stmt = $pdo->prepare("SELECT campus_name FROM campuses WHERE id = ?");
+        $stmt->execute([$campus_id]);
+        $campusInfo = $stmt->fetch();
+        $stats['campus_name'] = $campusInfo['campus_name'] ?? 'Unknown Campus';
+
+        // Total assets (filtered by campus)
+        $stmt = $pdo->prepare("SELECT COUNT(*) as total_assets FROM assets WHERE campus_id = ?");
+        $stmt->execute([$campus_id]);
         $stats['total_assets'] = $stmt->fetch()['total_assets'];
 
-        // Active users (staff and custodian)
-        $stmt = $pdo->query("SELECT COUNT(*) as active_users FROM users WHERE role IN ('staff', 'custodian') AND is_active = TRUE");
+        // Active users (staff and custodian, filtered by campus)
+        $stmt = $pdo->prepare("SELECT COUNT(*) as active_users FROM users WHERE role IN ('staff', 'custodian') AND is_active = TRUE AND campus_id = ?");
+        $stmt->execute([$campus_id]);
         $stats['active_users'] = $stmt->fetch()['active_users'];
 
-        // Pending requests
-        $stmt = $pdo->query("SELECT COUNT(*) as pending_requests FROM asset_requests WHERE status = 'pending'");
+        // Pending requests (filtered by campus)
+        $stmt = $pdo->prepare("SELECT COUNT(*) as pending_requests FROM asset_requests WHERE status = 'pending' AND campus_id = ?");
+        $stmt->execute([$campus_id]);
         $stats['pending_requests'] = $stmt->fetch()['pending_requests'];
 
-        // Total value
-        $stmt = $pdo->query("SELECT COALESCE(SUM(value), 0) as total_value FROM assets");
+        // Total value (filtered by campus)
+        $stmt = $pdo->prepare("SELECT COALESCE(SUM(value), 0) as total_value FROM assets WHERE campus_id = ?");
+        $stmt->execute([$campus_id]);
         $stats['total_value'] = $stmt->fetch()['total_value'];
-
-        // Assets by campus
-        $stmt = $pdo->query("SELECT c.campus_name, COUNT(a.id) as count FROM campuses c LEFT JOIN assets a ON c.id = a.campus_id GROUP BY c.id, c.campus_name ORDER BY c.campus_name");
-        $stats['assets_by_campus'] = $stmt->fetchAll();
 
         return $stats;
     } catch (PDOException $e) {
@@ -104,10 +116,24 @@ function getAdminStats($pdo) {
     }
 }
 
-function getRecentActivities($pdo, $limit = 10) {
+function getRecentActivities($pdo, $campus_id, $limit = 10) {
     try {
-        $stmt = $pdo->prepare("SELECT al.*, a.asset_name, u.full_name as performed_by_name FROM activity_log al LEFT JOIN assets a ON al.asset_id = a.id LEFT JOIN users u ON al.performed_by = u.username ORDER BY al.created_at DESC LIMIT ?");
-        $stmt->execute([$limit]);
+        $stmt = $pdo->prepare("
+            SELECT
+                al.*,
+                a.asset_name,
+                u.full_name as performed_by_name
+            FROM activity_log al
+            LEFT JOIN assets a ON al.asset_id = a.id
+            LEFT JOIN users u ON al.performed_by = u.username
+            WHERE al.campus_id = ?
+            AND al.action NOT LIKE '%email%'
+            AND al.action NOT LIKE '%notification%'
+            AND al.action NOT LIKE '%reminder%'
+            ORDER BY al.created_at DESC
+            LIMIT ?
+        ");
+        $stmt->execute([$campus_id, $limit]);
         return $stmt->fetchAll();
     } catch (PDOException $e) {
         error_log("Error getting recent activities: " . $e->getMessage());
@@ -117,9 +143,9 @@ function getRecentActivities($pdo, $limit = 10) {
 
 // Get dashboard data
 try {
-    $stats = getAdminStats($pdo);
-    $dashboardData = getDashboardData($pdo);
-    $recentActivities = getRecentActivities($pdo, 10);
+    $stats = getAdminStats($pdo, $USER_CAMPUS_ID);
+    $dashboardData = getDashboardData($pdo, $USER_CAMPUS_ID);
+    $recentActivities = getRecentActivities($pdo, $USER_CAMPUS_ID, 10);
 } catch (Exception $e) {
     error_log("Dashboard error: " . $e->getMessage());
     $stats = [];
@@ -171,6 +197,10 @@ try {
                 <div>
                     <h1 class="text-2xl font-semibold text-gray-800">Admin Dashboard</h1>
                     <p class="text-sm text-gray-600 mt-1">Welcome, <?= htmlspecialchars($user['full_name']) ?></p>
+                    <p class="text-sm text-blue-600 mt-1 font-medium">
+                        <i class="fas fa-map-marker-alt mr-1"></i>
+                        <?= htmlspecialchars($stats['campus_name'] ?? 'Unknown Campus') ?>
+                    </p>
                 </div>
                 <div class="flex items-center space-x-4">
                     <a href="../profile.php" class="text-sm text-gray-600 hover:text-gray-900">
@@ -187,7 +217,7 @@ try {
         <!-- Statistics Cards -->
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
             <div class="bg-white rounded-lg shadow p-6">
-                <div class="text-gray-500 text-sm">Total Assets</div>
+                <div class="text-gray-500 text-sm">Total Campus Assets</div>
                 <div class="text-3xl font-bold text-blue-600"><?= number_format($stats['total_assets'] ?? 0) ?></div>
             </div>
             <div class="bg-white rounded-lg shadow p-6">
@@ -252,9 +282,14 @@ try {
                         <?php else: ?>
                             <?php foreach ($recentActivities as $activity): ?>
                                 <tr>
-                                    <td class="px-6 py-4 text-sm text-gray-900"><?= htmlspecialchars($activity['activity_type'] ?? 'N/A') ?></td>
+                                    <td class="px-6 py-4 text-sm text-gray-900">
+                                        <div class="font-medium"><?= htmlspecialchars($activity['action'] ?? 'N/A') ?></div>
+                                        <?php if (!empty($activity['description'])): ?>
+                                            <div class="text-xs text-gray-500"><?= htmlspecialchars($activity['description']) ?></div>
+                                        <?php endif; ?>
+                                    </td>
                                     <td class="px-6 py-4 text-sm text-gray-900"><?= htmlspecialchars($activity['asset_name'] ?? 'N/A') ?></td>
-                                    <td class="px-6 py-4 text-sm text-gray-900"><?= htmlspecialchars($activity['performed_by_name'] ?? 'N/A') ?></td>
+                                    <td class="px-6 py-4 text-sm text-gray-900"><?= htmlspecialchars($activity['performed_by_name'] ?? $activity['performed_by'] ?? 'N/A') ?></td>
                                     <td class="px-6 py-4 text-sm text-gray-500"><?= date('M d, Y H:i', strtotime($activity['created_at'] ?? 'now')) ?></td>
                                 </tr>
                             <?php endforeach; ?>
@@ -263,21 +298,6 @@ try {
                 </table>
             </div>
         </div>
-
-        <!-- Assets by Campus -->
-        <?php if (!empty($stats['assets_by_campus'])): ?>
-        <div class="bg-white rounded-lg shadow p-6">
-            <h2 class="text-xl font-semibold mb-4">Assets by Campus</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <?php foreach ($stats['assets_by_campus'] as $campus): ?>
-                    <div class="border rounded-lg p-4">
-                        <div class="text-gray-600 text-sm"><?= htmlspecialchars($campus['campus_name']) ?></div>
-                        <div class="text-2xl font-bold text-blue-600"><?= number_format($campus['count']) ?></div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        </div>
-        <?php endif; ?>
             </div>
         </div>
     </div>

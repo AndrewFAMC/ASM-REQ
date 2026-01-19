@@ -19,13 +19,24 @@ if (!isLoggedIn()) {
 $user = getUserInfo();
 $campusId = $user['campus_id'];
 
+// Parse JSON input if Content-Type is application/json
+$inputData = [];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' &&
+    isset($_SERVER['CONTENT_TYPE']) &&
+    strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false) {
+    $rawInput = file_get_contents('php://input');
+    $inputData = json_decode($rawInput, true) ?? [];
+    // Merge with $_POST for compatibility
+    $_POST = array_merge($_POST, $inputData);
+}
+
 // Determine action
-$action = $_GET['action'] ?? $_POST['action'] ?? '';
+$action = $_GET['action'] ?? $_POST['action'] ?? $inputData['action'] ?? '';
 
 try {
     switch ($action) {
         case 'record_transfer':
-            recordTransfer($pdo, $user);
+            recordTransfer($pdo, $user, $inputData);
             break;
 
         case 'get_transfer_chain':
@@ -37,7 +48,7 @@ try {
             break;
 
         case 'verify_borrower':
-            verifyBorrower($pdo, $user);
+            verifyBorrower($pdo, $user, $inputData);
             break;
 
         default:
@@ -54,7 +65,7 @@ try {
 /**
  * Record a transfer between borrowers
  */
-function recordTransfer($pdo, $user) {
+function recordTransfer($pdo, $user, $inputData = []) {
     // Require custodian or admin access
     if (!hasRole('custodian') && !hasRole('admin')) {
         throw new Exception('Only custodians can record transfers');
@@ -67,7 +78,8 @@ function recordTransfer($pdo, $user) {
         throw new Exception('Invalid CSRF token');
     }
 
-    $input = json_decode(file_get_contents('php://input'), true);
+    // Use already parsed input data or parse from POST
+    $input = !empty($inputData) ? $inputData : $_POST;
 
     $borrowingId = filter_var($input['borrowing_id'] ?? null, FILTER_VALIDATE_INT);
     $requestId = filter_var($input['request_id'] ?? null, FILTER_VALIDATE_INT);
@@ -89,7 +101,7 @@ function recordTransfer($pdo, $user) {
 
     if ($borrowingId) {
         $stmt = $pdo->prepare("
-            SELECT ab.*, a.asset_name, a.asset_code
+            SELECT ab.*, a.asset_name, COALESCE(a.barcode, a.serial_number, CONCAT('ID-', a.id)) as asset_code
             FROM asset_borrowings ab
             JOIN assets a ON ab.asset_id = a.id
             WHERE ab.id = ?
@@ -106,7 +118,7 @@ function recordTransfer($pdo, $user) {
         $expectedReturnDate = $expectedReturnDate ?? $borrowing['expected_return_date'];
     } elseif ($requestId) {
         $stmt = $pdo->prepare("
-            SELECT ar.*, a.asset_name, a.asset_code, u.full_name as requester_name
+            SELECT ar.*, a.asset_name, COALESCE(a.barcode, a.serial_number, CONCAT('ID-', a.id)) as asset_code, u.full_name as requester_name
             FROM asset_requests ar
             JOIN assets a ON ar.asset_id = a.id
             JOIN users u ON ar.requester_id = u.id
@@ -133,6 +145,7 @@ function recordTransfer($pdo, $user) {
         $insertStmt = $pdo->prepare("
             INSERT INTO borrowing_chain (
                 borrowing_id,
+                request_id,
                 asset_id,
                 from_person,
                 to_person,
@@ -142,11 +155,12 @@ function recordTransfer($pdo, $user) {
                 status,
                 notes,
                 recorded_by
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
         ");
 
         $insertStmt->execute([
             $borrowingId ?? null,
+            $requestId ?? null,
             $assetId,
             $fromPerson,
             $toPerson,
@@ -232,7 +246,7 @@ function getTransferChain($pdo, $user) {
         SELECT
             bc.*,
             a.asset_name,
-            a.asset_code,
+            COALESCE(a.barcode, a.serial_number, CONCAT('ID-', a.id)) as asset_code,
             u.full_name as recorded_by_name
         FROM borrowing_chain bc
         JOIN assets a ON bc.asset_id = a.id
@@ -245,19 +259,13 @@ function getTransferChain($pdo, $user) {
     if ($borrowingId) {
         $sql .= " AND bc.borrowing_id = ?";
         $params[] = $borrowingId;
+    } elseif ($requestId) {
+        // Filter by request_id directly
+        $sql .= " AND bc.request_id = ?";
+        $params[] = $requestId;
     } elseif ($assetId) {
         $sql .= " AND bc.asset_id = ?";
         $params[] = $assetId;
-    } elseif ($requestId) {
-        // Get asset_id from request first
-        $reqStmt = $pdo->prepare("SELECT asset_id FROM asset_requests WHERE id = ?");
-        $reqStmt->execute([$requestId]);
-        $reqAssetId = $reqStmt->fetchColumn();
-
-        if ($reqAssetId) {
-            $sql .= " AND bc.asset_id = ?";
-            $params[] = $reqAssetId;
-        }
     }
 
     $sql .= " ORDER BY bc.transfer_date DESC";
@@ -289,7 +297,7 @@ function getActiveBorrowing($pdo, $user) {
             SELECT
                 ar.*,
                 a.asset_name,
-                a.asset_code,
+                COALESCE(a.barcode, a.serial_number, CONCAT('ID-', a.id)) as asset_code,
                 u.full_name as original_borrower,
                 u.email as borrower_email
             FROM asset_requests ar
@@ -320,7 +328,7 @@ function getActiveBorrowing($pdo, $user) {
             SELECT
                 ab.*,
                 a.asset_name,
-                a.asset_code
+                COALESCE(a.barcode, a.serial_number, CONCAT('ID-', a.id)) as asset_code
             FROM asset_borrowings ab
             JOIN assets a ON ab.asset_id = a.id
             WHERE ab.asset_id = ?
@@ -349,8 +357,9 @@ function getActiveBorrowing($pdo, $user) {
 /**
  * Verify if the person returning is the original borrower
  */
-function verifyBorrower($pdo, $user) {
-    $input = json_decode(file_get_contents('php://input'), true);
+function verifyBorrower($pdo, $user, $inputData = []) {
+    // Use already parsed input data or parse from POST
+    $input = !empty($inputData) ? $inputData : $_POST;
 
     $requestId = filter_var($input['request_id'] ?? null, FILTER_VALIDATE_INT);
     $returningPersonName = trim($input['returning_person'] ?? '');

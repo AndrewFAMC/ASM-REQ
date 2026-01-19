@@ -47,6 +47,7 @@ function createAsset($pdo, $data) {
         ]);
 
         $assetId = $pdo->lastInsertId();
+        $quantity = $data['quantity'] ?? 1;
 
         // Generate barcode data (using serial number or asset ID)
         $barcodeData = $data['serial_number'] ?? (string)$assetId;
@@ -58,12 +59,29 @@ function createAsset($pdo, $data) {
         // Log activity
         logActivity($pdo, $assetId, 'CREATED', "Asset created by custodian: " . $data['asset_name']);
 
+        // AUTO-CREATE INDIVIDUAL UNITS for quantity > 1
+        if ($quantity > 1) {
+            // Enable individual tracking
+            $trackStmt = $pdo->prepare("UPDATE assets SET track_individually = TRUE WHERE id = ?");
+            $trackStmt->execute([$assetId]);
+
+            // Create units using stored procedure
+            $unitsStmt = $pdo->prepare("CALL sp_create_units_for_asset(?, ?, ?)");
+            $unitsStmt->execute([$assetId, $quantity, $createdBy]);
+
+            logActivity($pdo, $assetId, 'UNITS_CREATED', "Automatically created {$quantity} individual units with unique serial numbers");
+        }
+
         // Add to assignment history
         $assignSql = "INSERT INTO asset_assignments (asset_id, assigned_to, assigned_email, assignment_date) VALUES (?, ?, ?, NOW())";
         executeQuery($pdo, $assignSql, [$assetId, $createdBy, $userEmail]);
 
         $pdo->commit();
-        return ['id' => $assetId, 'barcode' => $barcodeData];
+        return [
+            'id' => $assetId,
+            'barcode' => $barcodeData,
+            'units_created' => $quantity > 1 ? $quantity : 0
+        ];
     } catch (Exception $e) {
         $pdo->rollBack();
         error_log("Error creating asset: " . $e->getMessage());

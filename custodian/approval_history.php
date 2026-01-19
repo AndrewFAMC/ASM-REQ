@@ -128,14 +128,14 @@ $csrfToken = generateCSRFToken();
         <div id="sidebar" class="w-64 bg-gray-800 text-gray-300 flex-shrink-0 flex flex-col">
             <div class="flex items-center justify-center h-20 border-b border-gray-700">
                 <img src="../logo/1.png" alt="Logo" class="h-10 w-10 mr-3">
-                <span class="text-white text-lg font-bold">Custodian</span>
+                <span class="text-white text-lg font-bold">Custodian Panel</span>
             </div>
-            <nav class="flex-1 px-4 py-4 space-y-2 overflow-y-auto">
-                <!-- Dashboard -->
-                <a href="dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-home w-6"></i><span>Dashboard</span>
+            <nav class="flex-1 px-4 py-4 space-y-2 sidebar-scroll overflow-y-auto">
+                <!-- Simplified Navigation -->
+                <a href="dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-box-open w-6"></i><span>Manage Assets</span>
                 </a>
-                <a href="dashboard.php" onclick="showTab('offices')" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                <a href="dashboard.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
                     <i class="fas fa-building w-6"></i><span>Offices</span>
                 </a>
 
@@ -143,32 +143,35 @@ $csrfToken = generateCSRFToken();
                 <div class="border-t border-gray-700 my-2"></div>
 
                 <!-- Quick Scan Update -->
-                <a href="quick_scan_update.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                <a href="quick_scan_update.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
                     <i class="fas fa-barcode-read w-6"></i>
                     <span>Quick Scan Update</span>
                 </a>
 
                 <!-- Approve Requests -->
-                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                <a href="approve_requests.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
                     <i class="fas fa-check-circle w-6"></i>
                     <span>Approve Requests</span>
                 </a>
 
                 <!-- Release Assets -->
-                <a href="release_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
+                <a href="release_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
                     <i class="fas fa-hand-holding w-6"></i>
                     <span>Release Assets</span>
                 </a>
 
-                <!-- Accept Returns -->
-                <a href="return_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-undo-alt w-6"></i>
-                    <span>Accept Returns</span>
+                <!-- Return Assets -->
+                <a href="return_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-undo w-6"></i>
+                    <span>Return Assets</span>
                 </a>
 
+                <!-- Divider -->
+                <div class="border-t border-gray-700 my-2"></div>
+
                 <!-- Missing Assets -->
-                <a href="missing_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700">
-                    <i class="fas fa-exclamation-triangle w-6"></i>
+                <a href="missing_assets.php" class="flex items-center px-4 py-2 rounded-md hover:bg-gray-700 text-gray-300">
+                    <i class="fas fa-search w-6"></i>
                     <span>Missing Assets</span>
                 </a>
 
